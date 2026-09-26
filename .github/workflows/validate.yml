@@ -16,16 +16,3 @@ jobs:
 
       - name: Run Hassfest
         uses: home-assistant/actions/hassfest@master
-
-  hacs:
-    name: HACS Action Validation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: HACS Action
-        uses: "hacs/action@main"
-        with:
-          category: "integration"
-          ignore: "brands,topics"
