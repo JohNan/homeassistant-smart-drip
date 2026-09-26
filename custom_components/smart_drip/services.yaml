@@ -1,0 +1,49 @@
+calculate_now:
+  name: Calculate Evapotranspiration Now
+  description: Forces immediate recalculation of daily ET0 and soil water deficit.
+
+reset_bucket:
+  name: Reset Water Deficit Bucket
+  description: Resets accumulated water deficit to 0 for a specific zone or all zones.
+  fields:
+    zone:
+      name: Zone Identifier
+      description: The zone to reset (1, 2, or both).
+      required: false
+      example: 1
+      selector:
+        select:
+          options:
+            - label: "Zone 1"
+              value: "1"
+            - label: "Zone 2"
+              value: "2"
+            - label: "All Zones"
+              value: "all"
+
+run_zone:
+  name: Run Zone Manual Irrigation
+  description: Triggers a manual irrigation run for a zone with a given duration (seconds).
+  fields:
+    zone:
+      name: Zone Identifier
+      description: Zone to run (1 or 2).
+      required: true
+      example: 1
+      selector:
+        select:
+          options:
+            - label: "Zone 1"
+              value: "1"
+            - label: "Zone 2"
+              value: "2"
+    duration:
+      name: Duration in Seconds
+      description: Runtime in seconds (max 2700s).
+      required: true
+      default: 600
+      selector:
+        number:
+          min: 10
+          max: 2700
+          unit_of_measurement: seconds

@@ -36,13 +36,19 @@ ignore = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=custom_components.smart_drip --cov-report=term-missing --cov-fail-under=70"
 
 [tool.coverage.run]
 source = ["custom_components/smart_drip"]
 omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
 
 [tool.mypy]
 python_version = "3.13"
