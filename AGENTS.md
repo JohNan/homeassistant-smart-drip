@@ -18,6 +18,9 @@ integration/
 │       ├── calc.py               # Pure math engine: FAO-56 Penman-Monteith, deficit equations
 │       ├── const.py              # Constants, entity identifiers, threshold defaults
 │       ├── coordinator.py        # SmartDripCoordinator: weather ingestion, morning scheduler
+│       ├── frontend.py           # Auto-registration of Lovelace card static paths & resources
+│       ├── frontend/
+│       │   └── smart-drip-card.js # Lovelace custom card (gauges, decision badge, zone controls)
 │       ├── interlock.py          # SolenoidInterlock: mutual exclusion, 10s pause, safety ceiling
 │       ├── sensor.py             # Decision status sensor, ET0 gauge, deficit gauge, duration gauge
 │       ├── switch.py             # Auto-irrigation toggles per zone
@@ -31,6 +34,7 @@ integration/
 │   ├── test_calc.py              # Math and state machine unit tests
 │   ├── test_coordinator.py       # Coordinator telemetry, scheduler, and deficit tests
 │   ├── test_entities.py          # Sensor, switch, button, service, and unload tests
+│   ├── test_frontend.py          # Lovelace card registration and static path tests
 │   ├── test_interlock.py         # Hardware interlock, mutual exclusion, safety tests
 │   └── test_config_flow.py       # Config flow and options flow tests
 ├── pyproject.toml                # UV package definition, Ruff config, fail_under=70 coverage
