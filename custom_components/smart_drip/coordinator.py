@@ -1,0 +1,415 @@
+"""DataUpdateCoordinator for smart_drip."""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+from typing import Any, Final
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
+
+from .calc import (
+    calculate_deficit,
+    calculate_et0,
+    calculate_precipitation_rate,
+    calculate_runtime_seconds,
+    evaluate_irrigation_decision,
+)
+from .const import (
+    CONF_MAX_BUCKET,
+    CONF_SAFETY_LIMIT,
+    CONF_SENSOR_DEWPOINT,
+    CONF_SENSOR_HUMIDITY,
+    CONF_SENSOR_PRESSURE,
+    CONF_SENSOR_RADIATION,
+    CONF_SENSOR_RAIN_INTENSITY,
+    CONF_SENSOR_RAIN_TODAY,
+    CONF_SENSOR_TEMP,
+    CONF_SENSOR_WIND,
+    CONF_ZONE_1_AREA,
+    CONF_ZONE_1_ENABLED,
+    CONF_ZONE_1_FLOW_RATE,
+    CONF_ZONE_1_SWITCH,
+    CONF_ZONE_2_AREA,
+    CONF_ZONE_2_ENABLED,
+    CONF_ZONE_2_FLOW_RATE,
+    CONF_ZONE_2_SWITCH,
+    DEFAULT_MAX_BUCKET_MM,
+    DEFAULT_SAFETY_LIMIT_SECONDS,
+    DEFAULT_SENSOR_DEWPOINT,
+    DEFAULT_SENSOR_HUMIDITY,
+    DEFAULT_SENSOR_PRESSURE,
+    DEFAULT_SENSOR_RADIATION,
+    DEFAULT_SENSOR_RAIN_INTENSITY,
+    DEFAULT_SENSOR_RAIN_TODAY,
+    DEFAULT_SENSOR_TEMP,
+    DEFAULT_SENSOR_WIND,
+    DEFAULT_ZONE_1_AREA_M2,
+    DEFAULT_ZONE_1_FLOW_RATE_L_H,
+    DEFAULT_ZONE_1_SWITCH,
+    DEFAULT_ZONE_2_AREA_M2,
+    DEFAULT_ZONE_2_FLOW_RATE_L_H,
+    DEFAULT_ZONE_2_SWITCH,
+    DOMAIN,
+    INTERLOCK_DELAY_SECONDS,
+    STATUS_IDLE,
+    STATUS_READY,
+    STATUS_RUNNING,
+)
+from .interlock import SolenoidInterlock
+
+_LOGGER: Final = logging.getLogger(__name__)
+
+
+class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator handling weather telemetry, ET0 calculations, and valve sequencing."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the coordinator."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_{entry.entry_id}",
+        )
+        self.entry = entry
+        self.interlock = SolenoidInterlock(
+            interlock_delay=INTERLOCK_DELAY_SECONDS,
+            max_duration_seconds=self._get_conf(CONF_SAFETY_LIMIT, DEFAULT_SAFETY_LIMIT_SECONDS),
+        )
+
+        self.last_et0: float = 0.0
+        self.yesterday_rain: float = 0.0
+        self.zone_deficits: dict[int, float] = {1: 0.0, 2: 0.0}
+        self.zone_status: dict[int, dict[str, Any]] = {
+            1: self._initial_zone_status(1),
+            2: self._initial_zone_status(2),
+        }
+        self._unsub_schedules: list[CALLBACK_TYPE] = []
+
+    def _initial_zone_status(self, zone: int) -> dict[str, Any]:
+        """Return the initial zone decision state structure."""
+        return {
+            "state": STATUS_IDLE,
+            "reason": "Initialized; awaiting first evaluation cycle.",
+            "target_duration_seconds": 0,
+            "estimated_liters": 0.0,
+            "last_run_timestamp": None,
+        }
+
+    def _get_conf(self, key: str, default: Any) -> Any:
+        """Retrieve config value from options or data."""
+        if self.entry.options and key in self.entry.options:
+            return self.entry.options[key]
+        if self.entry.data and key in self.entry.data:
+            return self.entry.data[key]
+        return default
+
+    def _get_float_state(self, entity_id: str, default: float = 0.0) -> float:
+        """Helper to get a numeric state safely from Home Assistant."""
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return default
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return default
+
+    async def async_setup(self) -> None:
+        """Setup time listeners and initial state evaluation."""
+        # Daily ET0 computation at 23:00:00
+        unsub_et0 = async_track_time_change(
+            self.hass,
+            self._handle_nightly_et0_trigger,
+            hour=23,
+            minute=0,
+            second=0,
+        )
+        self._unsub_schedules.append(unsub_et0)
+
+        # Morning irrigation sequence at 06:00:00
+        unsub_morning = async_track_time_change(
+            self.hass,
+            self._handle_morning_irrigation_trigger,
+            hour=6,
+            minute=0,
+            second=0,
+        )
+        self._unsub_schedules.append(unsub_morning)
+
+        # Initial zone status evaluation
+        await self.async_evaluate_zones()
+
+    async def async_unload(self) -> None:
+        """Unload scheduled timers and release resources."""
+        for unsub in self._unsub_schedules:
+            unsub()
+        self._unsub_schedules.clear()
+
+    async def _handle_nightly_et0_trigger(self, _now: datetime) -> None:
+        """Scheduled callback at 23:00 nightly to calculate ET0."""
+        _LOGGER.info("Executing scheduled nightly ET0 calculation at 23:00.")
+        await self.async_calculate_daily_et0()
+
+    async def _handle_morning_irrigation_trigger(self, _now: datetime) -> None:
+        """Scheduled callback at 06:00 morning to evaluate and execute irrigation."""
+        _LOGGER.info("Executing scheduled morning irrigation sequence at 06:00.")
+        await self.async_execute_morning_schedule()
+
+    async def async_calculate_daily_et0(self) -> float:
+        """Calculate daily ET0 using sensor telemetry and update water deficits."""
+        temp_c = self._get_float_state(self._get_conf(CONF_SENSOR_TEMP, DEFAULT_SENSOR_TEMP), 18.0)
+        humidity = self._get_float_state(
+            self._get_conf(CONF_SENSOR_HUMIDITY, DEFAULT_SENSOR_HUMIDITY), 60.0
+        )
+        dewpoint = self._get_float_state(
+            self._get_conf(CONF_SENSOR_DEWPOINT, DEFAULT_SENSOR_DEWPOINT), 10.0
+        )
+        radiation = self._get_float_state(
+            self._get_conf(CONF_SENSOR_RADIATION, DEFAULT_SENSOR_RADIATION), 15.0
+        )
+        wind = self._get_float_state(self._get_conf(CONF_SENSOR_WIND, DEFAULT_SENSOR_WIND), 1.5)
+        pressure = self._get_float_state(
+            self._get_conf(CONF_SENSOR_PRESSURE, DEFAULT_SENSOR_PRESSURE), 1013.25
+        )
+        rain_today = self._get_float_state(
+            self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY), 0.0
+        )
+
+        et0 = calculate_et0(
+            temp_c=temp_c,
+            net_radiation_mj=radiation,
+            wind_speed_m_s=wind,
+            relative_humidity=humidity,
+            dewpoint_c=dewpoint,
+            pressure_hpa=pressure,
+        )
+        self.last_et0 = et0
+        self.yesterday_rain = rain_today
+
+        max_bucket = float(self._get_conf(CONF_MAX_BUCKET, DEFAULT_MAX_BUCKET_MM))
+
+        # Update cumulative deficit for each zone
+        for zone in (1, 2):
+            prev = self.zone_deficits[zone]
+            new_deficit = calculate_deficit(
+                previous_deficit=prev,
+                et0=et0,
+                rainfall=rain_today,
+                irrigation_applied=0.0,
+                max_bucket=max_bucket,
+            )
+            self.zone_deficits[zone] = new_deficit
+            _LOGGER.info(
+                "Zone %s deficit updated: prev=%.2f mm, ET0=%.2f mm, rain=%.2f mm -> new=%.2f mm",
+                zone,
+                prev,
+                et0,
+                rain_today,
+                new_deficit,
+            )
+
+        await self.async_evaluate_zones()
+        self.async_set_updated_data(self._build_coordinator_data())
+        return et0
+
+    async def async_evaluate_zones(self) -> None:
+        """Evaluate decision state machine for both zones."""
+        temp_c = self._get_float_state(self._get_conf(CONF_SENSOR_TEMP, DEFAULT_SENSOR_TEMP), 18.0)
+        rain_rate = self._get_float_state(
+            self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY), 0.0
+        )
+        rain_today = self._get_float_state(
+            self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY), 0.0
+        )
+
+        safety_limit = int(self._get_conf(CONF_SAFETY_LIMIT, DEFAULT_SAFETY_LIMIT_SECONDS))
+
+        zone_configs = {
+            1: {
+                "enabled": bool(self._get_conf(CONF_ZONE_1_ENABLED, True)),
+                "area": float(self._get_conf(CONF_ZONE_1_AREA, DEFAULT_ZONE_1_AREA_M2)),
+                "flow": float(self._get_conf(CONF_ZONE_1_FLOW_RATE, DEFAULT_ZONE_1_FLOW_RATE_L_H)),
+            },
+            2: {
+                "enabled": bool(self._get_conf(CONF_ZONE_2_ENABLED, False)),
+                "area": float(self._get_conf(CONF_ZONE_2_AREA, DEFAULT_ZONE_2_AREA_M2)),
+                "flow": float(self._get_conf(CONF_ZONE_2_FLOW_RATE, DEFAULT_ZONE_2_FLOW_RATE_L_H)),
+            },
+        }
+
+        for zone in (1, 2):
+            cfg = zone_configs[zone]
+            deficit = self.zone_deficits[zone]
+
+            state, reason = evaluate_irrigation_decision(
+                zone_enabled=cfg["enabled"],
+                temp_c=temp_c,
+                current_rain_rate_mm_h=rain_rate,
+                rain_today_mm=rain_today,
+                rain_yesterday_mm=self.yesterday_rain,
+                deficit_mm=deficit,
+            )
+
+            duration = 0
+            liters = 0.0
+            if state == STATUS_READY:
+                duration = calculate_runtime_seconds(
+                    deficit_mm=deficit,
+                    flow_rate_l_h=cfg["flow"],
+                    area_m2=cfg["area"],
+                    safety_ceiling_seconds=safety_limit,
+                )
+                # Liters = (duration_seconds / 3600) * flow_rate_l_h
+                liters = round((duration / 3600.0) * cfg["flow"], 1)
+
+            self.zone_status[zone]["state"] = state
+            self.zone_status[zone]["reason"] = reason
+            self.zone_status[zone]["target_duration_seconds"] = duration
+            self.zone_status[zone]["estimated_liters"] = liters
+
+        self.async_set_updated_data(self._build_coordinator_data())
+
+    async def async_execute_morning_schedule(self) -> None:
+        """Evaluate zones and sequentially run active valves at 06:00."""
+        await self.async_evaluate_zones()
+
+        zone_switches = {
+            1: self._get_conf(CONF_ZONE_1_SWITCH, DEFAULT_ZONE_1_SWITCH),
+            2: self._get_conf(CONF_ZONE_2_SWITCH, DEFAULT_ZONE_2_SWITCH),
+        }
+        zone_flows = {
+            1: float(self._get_conf(CONF_ZONE_1_FLOW_RATE, DEFAULT_ZONE_1_FLOW_RATE_L_H)),
+            2: float(self._get_conf(CONF_ZONE_2_FLOW_RATE, DEFAULT_ZONE_2_FLOW_RATE_L_H)),
+        }
+        zone_areas = {
+            1: float(self._get_conf(CONF_ZONE_1_AREA, DEFAULT_ZONE_1_AREA_M2)),
+            2: float(self._get_conf(CONF_ZONE_2_AREA, DEFAULT_ZONE_2_AREA_M2)),
+        }
+
+        for zone in (1, 2):
+            status = self.zone_status[zone]
+            if status["state"] != STATUS_READY:
+                _LOGGER.info(
+                    "Skipping Zone %s: State is '%s' (%s)",
+                    zone,
+                    status["state"],
+                    status["reason"],
+                )
+                continue
+
+            duration = status["target_duration_seconds"]
+            if duration <= 0:
+                continue
+
+            switch_entity = zone_switches[zone]
+            flow = zone_flows[zone]
+            area = zone_areas[zone]
+
+            async def turn_on(z: int = zone, sw: str = switch_entity) -> None:
+                self.zone_status[z]["state"] = STATUS_RUNNING
+                self.async_set_updated_data(self._build_coordinator_data())
+                await self.hass.services.async_call(
+                    "switch", "turn_on", {"entity_id": sw}, blocking=True
+                )
+
+            async def turn_off(
+                z: int = zone,
+                sw: str = switch_entity,
+                d: int = duration,
+                f: float = flow,
+                a: float = area,
+            ) -> None:
+                await self.hass.services.async_call(
+                    "switch", "turn_off", {"entity_id": sw}, blocking=True
+                )
+                # Compute applied precipitation in mm
+                pr = calculate_precipitation_rate(f, a)
+                applied_mm = (d / 3600.0) * pr
+                self.zone_deficits[z] = max(0.0, round(self.zone_deficits[z] - applied_mm, 2))
+                self.zone_status[z]["state"] = STATUS_IDLE
+                self.zone_status[z]["last_run_timestamp"] = dt_util.now().isoformat()
+                self.zone_status[z]["target_duration_seconds"] = 0
+                self.zone_status[z]["estimated_liters"] = 0.0
+                self.async_set_updated_data(self._build_coordinator_data())
+
+            _LOGGER.info("Starting guarded execution for Zone %s (%s s).", zone, duration)
+            await self.interlock.execute_irrigation(
+                channel=zone,
+                duration_seconds=duration,
+                turn_on_fn=turn_on,
+                turn_off_fn=turn_off,
+            )
+
+    async def async_run_zone_manual(self, zone: int, duration_seconds: int) -> None:
+        """Trigger a manual irrigation run for a zone with safety interlock."""
+        if zone not in (1, 2):
+            raise ValueError(f"Invalid zone {zone}; must be 1 or 2.")
+
+        zone_switches = {
+            1: self._get_conf(CONF_ZONE_1_SWITCH, DEFAULT_ZONE_1_SWITCH),
+            2: self._get_conf(CONF_ZONE_2_SWITCH, DEFAULT_ZONE_2_SWITCH),
+        }
+        zone_flows = {
+            1: float(self._get_conf(CONF_ZONE_1_FLOW_RATE, DEFAULT_ZONE_1_FLOW_RATE_L_H)),
+            2: float(self._get_conf(CONF_ZONE_2_FLOW_RATE, DEFAULT_ZONE_2_FLOW_RATE_L_H)),
+        }
+        zone_areas = {
+            1: float(self._get_conf(CONF_ZONE_1_AREA, DEFAULT_ZONE_1_AREA_M2)),
+            2: float(self._get_conf(CONF_ZONE_2_AREA, DEFAULT_ZONE_2_AREA_M2)),
+        }
+
+        switch_entity = zone_switches[zone]
+        flow = zone_flows[zone]
+        area = zone_areas[zone]
+
+        async def turn_on() -> None:
+            self.zone_status[zone]["state"] = STATUS_RUNNING
+            self.async_set_updated_data(self._build_coordinator_data())
+            await self.hass.services.async_call(
+                "switch", "turn_on", {"entity_id": switch_entity}, blocking=True
+            )
+
+        async def turn_off() -> None:
+            await self.hass.services.async_call(
+                "switch", "turn_off", {"entity_id": switch_entity}, blocking=True
+            )
+            pr = calculate_precipitation_rate(flow, area)
+            applied_mm = (duration_seconds / 3600.0) * pr
+            self.zone_deficits[zone] = max(0.0, round(self.zone_deficits[zone] - applied_mm, 2))
+            self.zone_status[zone]["state"] = STATUS_IDLE
+            self.zone_status[zone]["last_run_timestamp"] = dt_util.now().isoformat()
+            self.async_set_updated_data(self._build_coordinator_data())
+
+        await self.interlock.execute_irrigation(
+            channel=zone,
+            duration_seconds=duration_seconds,
+            turn_on_fn=turn_on,
+            turn_off_fn=turn_off,
+        )
+
+    async def async_reset_bucket(self, zone: int | str = "all") -> None:
+        """Reset water deficit to 0 for a zone or all zones."""
+        if str(zone) in ("1", "all"):
+            self.zone_deficits[1] = 0.0
+            _LOGGER.info("Reset water deficit for Zone 1 to 0 mm.")
+        if str(zone) in ("2", "all"):
+            self.zone_deficits[2] = 0.0
+            _LOGGER.info("Reset water deficit for Zone 2 to 0 mm.")
+
+        await self.async_evaluate_zones()
+        self.async_set_updated_data(self._build_coordinator_data())
+
+    def _build_coordinator_data(self) -> dict[str, Any]:
+        """Construct the reactive coordinator payload for entities."""
+        return {
+            "last_et0": self.last_et0,
+            "yesterday_rain": self.yesterday_rain,
+            "zone_deficits": dict(self.zone_deficits),
+            "zone_status": {z: dict(self.zone_status[z]) for z in (1, 2)},
+            "interlock_active": self.interlock.is_active,
+            "interlock_active_channel": self.interlock.active_channel,
+        }
