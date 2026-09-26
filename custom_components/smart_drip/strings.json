@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Drip Irrigation Configuration",
+        "description": "Configure Tempest weather sensor bindings and Sonoff valve physical zone parameters.",
+        "data": {
+          "sensor_temp": "Air Temperature Sensor",
+          "sensor_humidity": "Relative Humidity Sensor",
+          "sensor_dewpoint": "Dewpoint Sensor",
+          "sensor_radiation": "Solar Radiation Sensor",
+          "sensor_wind": "Wind Speed Sensor",
+          "sensor_pressure": "Barometric Pressure Sensor",
+          "sensor_rain_today": "Daily Precipitation Sensor",
+          "sensor_rain_intensity": "Rain Intensity Sensor",
+          "zone_1_switch": "Zone 1 Valve Switch Entity",
+          "zone_2_switch": "Zone 2 Valve Switch Entity",
+          "zone_1_area": "Zone 1 Irrigated Area (m²)",
+          "zone_1_flow_rate": "Zone 1 Flow Rate (L/h)",
+          "zone_1_enabled": "Enable Zone 1 Auto-Irrigation",
+          "zone_2_area": "Zone 2 Irrigated Area (m²)",
+          "zone_2_flow_rate": "Zone 2 Flow Rate (L/h)",
+          "zone_2_enabled": "Enable Zone 2 Auto-Irrigation",
+          "max_bucket": "Maximum Soil Bucket Capacity (mm)",
+          "safety_limit": "Valve Run Safety Ceiling (seconds)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Smart Drip Irrigation is already configured on this system."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Drip Irrigation Options",
+        "description": "Adjust zone areas, flow rates, bucket thresholds, and safety limits.",
+        "data": {
+          "zone_1_area": "Zone 1 Irrigated Area (m²)",
+          "zone_1_flow_rate": "Zone 1 Flow Rate (L/h)",
+          "zone_1_enabled": "Enable Zone 1 Auto-Irrigation",
+          "zone_2_area": "Zone 2 Irrigated Area (m²)",
+          "zone_2_flow_rate": "Zone 2 Flow Rate (L/h)",
+          "zone_2_enabled": "Enable Zone 2 Auto-Irrigation",
+          "max_bucket": "Maximum Soil Bucket Capacity (mm)",
+          "safety_limit": "Valve Run Safety Ceiling (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "daily_et0": {
+        "name": "Daily ET0"
+      },
+      "zone_status": {
+        "name": "Zone Status"
+      }
+    }
+  }
+}

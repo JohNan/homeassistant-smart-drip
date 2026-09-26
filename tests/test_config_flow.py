@@ -1,0 +1,85 @@
+"""Tests for smart_drip config flow and options flow."""
+
+import pytest
+from homeassistant import data_entry_flow
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.smart_drip.const import (
+    CONF_MAX_BUCKET,
+    CONF_SAFETY_LIMIT,
+    CONF_ZONE_1_AREA,
+    CONF_ZONE_1_ENABLED,
+    CONF_ZONE_1_FLOW_RATE,
+    CONF_ZONE_2_AREA,
+    CONF_ZONE_2_ENABLED,
+    CONF_ZONE_2_FLOW_RATE,
+    DOMAIN,
+)
+
+
+@pytest.mark.asyncio
+async def test_config_flow_user_step(hass: HomeAssistant) -> None:
+    """Test standard user flow initializes entry."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    # Fill form with valid data
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_ZONE_1_AREA: 4.8,
+            CONF_ZONE_1_FLOW_RATE: 40.0,
+            CONF_ZONE_1_ENABLED: True,
+            CONF_ZONE_2_AREA: 5.0,
+            CONF_ZONE_2_FLOW_RATE: 40.0,
+            CONF_ZONE_2_ENABLED: False,
+            CONF_MAX_BUCKET: 24.0,
+            CONF_SAFETY_LIMIT: 2700,
+        },
+    )
+    assert result2["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert result2["title"] == "Smart Drip Irrigation"
+    assert result2["data"][CONF_ZONE_1_AREA] == 4.8
+
+
+@pytest.mark.asyncio
+async def test_options_flow(hass: HomeAssistant) -> None:
+    """Test options flow allows updating zone and bucket parameters."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Smart Drip",
+        data={
+            CONF_ZONE_1_AREA: 4.8,
+            CONF_ZONE_1_FLOW_RATE: 40.0,
+            CONF_ZONE_1_ENABLED: True,
+            CONF_ZONE_2_AREA: 5.0,
+            CONF_ZONE_2_FLOW_RATE: 40.0,
+            CONF_ZONE_2_ENABLED: False,
+            CONF_MAX_BUCKET: 24.0,
+            CONF_SAFETY_LIMIT: 2700,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ZONE_1_AREA: 6.0,
+            CONF_ZONE_1_FLOW_RATE: 50.0,
+            CONF_ZONE_1_ENABLED: True,
+            CONF_ZONE_2_AREA: 8.0,
+            CONF_ZONE_2_FLOW_RATE: 60.0,
+            CONF_ZONE_2_ENABLED: True,
+            CONF_MAX_BUCKET: 30.0,
+            CONF_SAFETY_LIMIT: 1800,
+        },
+    )
+    assert result2["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ZONE_1_AREA] == 6.0
+    assert entry.options[CONF_MAX_BUCKET] == 30.0
