@@ -15,6 +15,7 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_MAX_BUCKET,
+    CONF_RAIN_IS_RATE,
     CONF_SAFETY_LIMIT,
     CONF_SENSOR_DEWPOINT,
     CONF_SENSOR_HUMIDITY,
@@ -33,6 +34,7 @@ from .const import (
     CONF_ZONE_2_FLOW_RATE,
     CONF_ZONE_2_SWITCH,
     DEFAULT_MAX_BUCKET_MM,
+    DEFAULT_RAIN_IS_RATE,
     DEFAULT_SAFETY_LIMIT_SECONDS,
     DEFAULT_SENSOR_DEWPOINT,
     DEFAULT_SENSOR_HUMIDITY,
@@ -82,6 +84,7 @@ class SmartDripConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_SENSOR_RAIN_INTENSITY, default=DEFAULT_SENSOR_RAIN_INTENSITY
                 ): str,
+                vol.Required(CONF_RAIN_IS_RATE, default=DEFAULT_RAIN_IS_RATE): bool,
                 vol.Required(CONF_ZONE_1_SWITCH, default=DEFAULT_ZONE_1_SWITCH): str,
                 vol.Required(CONF_ZONE_1_AREA, default=DEFAULT_ZONE_1_AREA_M2): vol.Coerce(float),
                 vol.Required(
@@ -148,6 +151,10 @@ class SmartDripOptionsFlowHandler(OptionsFlowWithConfigEntry):
                         self._get_val(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
                     ),
                 ): str,
+                vol.Required(
+                    CONF_RAIN_IS_RATE,
+                    default=bool(self._get_val(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE)),
+                ): bool,
                 vol.Required(
                     CONF_ZONE_1_AREA,
                     default=float(self._get_val(CONF_ZONE_1_AREA, DEFAULT_ZONE_1_AREA_M2)),

@@ -1,15 +1,16 @@
-"""Tests for smart_drip DataUpdateCoordinator."""
-
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_mock_service,
 )
 
 from custom_components.smart_drip.const import (
+    CONF_RAIN_IS_RATE,
     CONF_SENSOR_DEWPOINT,
     CONF_SENSOR_HUMIDITY,
     CONF_SENSOR_PRESSURE,
@@ -91,6 +92,7 @@ def get_mock_entry() -> MockConfigEntry:
             CONF_ZONE_2_FLOW_RATE: 40.0,
             CONF_ZONE_1_ENABLED: True,
             CONF_ZONE_2_ENABLED: False,
+            CONF_RAIN_IS_RATE: False,
         },
     )
 
@@ -298,3 +300,63 @@ async def test_coordinator_dynamic_weather_state_change(hass: HomeAssistant) -> 
     assert coordinator.zone_status[1]["last_rain_today_mm"] == 2.6
     assert "2.6 mm" in coordinator.zone_status[1]["reason"]
     assert "Rainfall today" in coordinator.zone_status[1]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_coordinator_rain_rate_live_integration(hass: HomeAssistant) -> None:
+    """Test dynamic numerical integration of rain rate into rain_today across time steps."""
+    setup_mock_weather_sensors(hass, temp=20.0, rain_today=0.0)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Smart Drip Rate",
+        data={
+            CONF_SENSOR_TEMP: DEFAULT_SENSOR_TEMP,
+            CONF_SENSOR_RAIN_TODAY: DEFAULT_SENSOR_RAIN_TODAY,
+            CONF_SENSOR_RAIN_INTENSITY: DEFAULT_SENSOR_RAIN_INTENSITY,
+            CONF_ZONE_1_SWITCH: DEFAULT_ZONE_1_SWITCH,
+            CONF_ZONE_1_ENABLED: True,
+            CONF_RAIN_IS_RATE: True,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    assert coordinator.rain_today == 0.0
+
+    # Simulate 30 minutes of rain at 4.0 mm/h
+    # Initial rate 0.0 at t - 1800s
+    coordinator._last_rain_rate = 4.0
+    coordinator._last_rain_rate_timestamp = dt_util.now() - timedelta(minutes=30)
+
+    # State updates to 4.0 mm/h -> trapezoid ((4.0 + 4.0)/2) * 0.5h = 2.0 mm
+    hass.states.async_set(DEFAULT_SENSOR_RAIN_TODAY, "4.0")
+    await hass.async_block_till_done()
+
+    assert coordinator.rain_today == 2.0
+
+    # Another 15 minutes at 2.4 mm/h -> trapezoid ((4.0 + 2.4)/2) * 0.25h = 0.8 mm
+    coordinator._last_rain_rate = 4.0
+    coordinator._last_rain_rate_timestamp = dt_util.now() - timedelta(minutes=15)
+    hass.states.async_set(DEFAULT_SENSOR_RAIN_TODAY, "2.4")
+    await hass.async_block_till_done()
+
+    assert coordinator.rain_today == 2.8
+
+
+@pytest.mark.asyncio
+async def test_coordinator_midnight_rollover(hass: HomeAssistant) -> None:
+    """Test midnight rollover moves rain_today into yesterday_rain and resets accumulator."""
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    coordinator.rain_today = 3.65
+    with patch.object(coordinator, "async_save_state", new_callable=AsyncMock) as mock_save:
+        await coordinator._handle_midnight_rollover(dt_util.now())
+        assert coordinator.yesterday_rain == 3.65
+        assert coordinator.rain_today == 0.0
+        mock_save.assert_awaited_once()
