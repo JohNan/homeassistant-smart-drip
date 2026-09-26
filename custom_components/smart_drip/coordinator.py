@@ -246,7 +246,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             deficit = self.zone_deficits[zone]
 
             state, reason = evaluate_irrigation_decision(
-                zone_enabled=cfg["enabled"],
+                zone_enabled=bool(cfg["enabled"]),
                 temp_c=temp_c,
                 current_rain_rate_mm_h=rain_rate,
                 rain_today_mm=rain_today,
