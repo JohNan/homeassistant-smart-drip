@@ -2,12 +2,16 @@
 
 This directory houses the standalone, production-ready Home Assistant custom integration for smart micro-drip irrigation.
 
+> [!NOTE]
+> This directory is the dedicated Git repository root for `JohNan/homeassistant-smart-drip`. All integration code, tests, CI workflows, and package configs reside here. Do not add non-integration reference files or blueprints to this repository.
+
 ---
 
 ## 1. Directory Structure
 
 ```
 integration/
+├── .git/                         # Standalone Git repository
 ├── custom_components/
 │   └── smart_drip/
 │       ├── __init__.py           # Component lifecycle, coordinator registration, service registration
