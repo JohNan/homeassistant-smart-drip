@@ -20,6 +20,7 @@ from zigpy.zcl.foundation import BaseAttributeDefs, ZCLAttributeDef
 try:
     from zhaquirks import LocalDataCluster
 except ImportError:
+
     class LocalDataCluster(CustomCluster):
         """Fallback local cluster implementation."""
 
@@ -37,9 +38,7 @@ except ImportError:
                 foundation.ReadAttributeRecord(
                     attr,
                     foundation.Status.SUCCESS,
-                    foundation.TypeValue(
-                        self.find_attribute(attr).zcl_type, self.get(attr)
-                    ),
+                    foundation.TypeValue(self.find_attribute(attr).zcl_type, self.get(attr)),
                 )
                 for attr in attributes
             ]
@@ -54,10 +53,7 @@ def _extract_elements(value: Any) -> list[int] | None:
         if value.value is None:
             return None
         return list(value.value)
-    if (
-        hasattr(value, "value")
-        and isinstance(value.value, (list, tuple, bytes, bytearray))
-    ):
+    if hasattr(value, "value") and isinstance(value.value, (list, tuple, bytes, bytearray)):
         return list(value.value)
     if isinstance(value, (list, tuple, bytes, bytearray)):
         return list(value)
@@ -87,7 +83,7 @@ class CustomSonoffCluster(CustomCluster):
 
         # childLock: {name: "childLock", ID: 0x0000, type: Zcl.DataType.BOOLEAN, write: true},
         child_lock = ZCLAttributeDef(
-            id=0x0000, 
+            id=0x0000,
             type=t.Bool,
             access="rwp",
             # is_manufacturer_specific=True,
@@ -149,9 +145,7 @@ class CustomSonoffCluster(CustomCluster):
 
     def _update_attribute(self, attrid: int, value: Any) -> None:
         super()._update_attribute(attrid, value)
-        alarm_cluster = self.endpoint.in_clusters.get(
-            ValveAlarmSettingsCluster.cluster_id
-        )
+        alarm_cluster = self.endpoint.in_clusters.get(ValveAlarmSettingsCluster.cluster_id)
         if alarm_cluster is not None:
             if attrid == self.AttributeDefs.valve_alarm_settings.id:
                 alarm_cluster.update_alarm_settings(value)
@@ -162,10 +156,12 @@ class CustomSonoffCluster(CustomCluster):
         """Read settings during pairing."""
         await super().apply_custom_configuration(*args, **kwargs)
         if self.endpoint.endpoint_id == 1:
-            await self.read_attributes([
-                self.AttributeDefs.valve_alarm_settings.id,
-                self.AttributeDefs.manual_default_settings.id,
-            ])
+            await self.read_attributes(
+                [
+                    self.AttributeDefs.valve_alarm_settings.id,
+                    self.AttributeDefs.manual_default_settings.id,
+                ]
+            )
 
 
 class ValveAlarmSettingsCluster(LocalDataCluster):
@@ -359,9 +355,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
             self.AttributeDefs.alarm_water_leak_duration.name,
         }
         if any(k in attributes for k in alarm_keys):
-            current = sonoff_cluster.get(
-                CustomSonoffCluster.AttributeDefs.valve_alarm_settings.id
-            )
+            current = sonoff_cluster.get(CustomSonoffCluster.AttributeDefs.valve_alarm_settings.id)
             elements = _extract_elements(current)
             if not elements:
                 elements = [0x03, 1, 1, 0]
@@ -410,9 +404,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
     .also_applies_to("SONOFF", "SWV-ZF2U")
     .also_applies_to("SONOFF", "SWV-ZF2E")
     .replaces(CustomSonoffCluster)
-    .replaces(
-        CustomSonoffCluster, endpoint_id=2
-    )  # Endpoint 2 also uses the custom cluster
+    .replaces(CustomSonoffCluster, endpoint_id=2)  # Endpoint 2 also uses the custom cluster
     .adds(ValveAlarmSettingsCluster)
     # Child Lock
     .switch(
@@ -423,11 +415,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         unique_id_suffix="child_lock",
         translation_key="child_lock",
         fallback_name="Child lock",
-        reporting_config=ReportingConfig(
-            min_interval=30, 
-            max_interval=900, 
-            reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=30, max_interval=900, reportable_change=1),
     )
     # Water shortage alarm switch
     .switch(
@@ -524,9 +512,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         state_class=SensorStateClass.MEASUREMENT,
         unit=UnitOfTime.MINUTES,
         unique_id_suffix="realtime_irrigation_duration_ch1",
-        reporting_config=ReportingConfig(
-            min_interval=10, max_interval=900, reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=10, max_interval=900, reportable_change=1),
         translation_key="realtime_irrigation_duration_ch1",
         fallback_name="Realtime irrigation duration CH1",
     )
@@ -539,9 +525,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         state_class=SensorStateClass.MEASUREMENT,
         unit=UnitOfTime.MINUTES,
         unique_id_suffix="realtime_irrigation_duration_ch2",
-        reporting_config=ReportingConfig(
-            min_interval=10, max_interval=900, reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=10, max_interval=900, reportable_change=1),
         translation_key="realtime_irrigation_duration_ch2",
         fallback_name="Realtime irrigation duration CH2",
     )
@@ -554,13 +538,10 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         state_class=SensorStateClass.TOTAL_INCREASING,  # VOLUME must use total_increasing
         unit=UnitOfVolume.LITERS,
         unique_id_suffix="realtime_irrigation_volume",
-        reporting_config=ReportingConfig(
-            min_interval=10, max_interval=900, reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=10, max_interval=900, reportable_change=1),
         translation_key="realtime_irrigation_volume",
         fallback_name="Realtime irrigation volume",
     )
-    
     # Water leak sensor (bit1)
     .binary_sensor(
         CustomSonoffCluster.AttributeDefs.water_valve_state.name,
@@ -569,9 +550,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         device_class=BinarySensorDeviceClass.MOISTURE,
         attribute_converter=lambda x: bool(x & ValveState.Water_Leakage),
         unique_id_suffix="water_leak_status",
-        reporting_config=ReportingConfig(
-            min_interval=10, max_interval=900, reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=10, max_interval=900, reportable_change=1),
         translation_key="water_leak",
         fallback_name="Water leak",
     )
@@ -639,9 +618,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         state_class=SensorStateClass.MEASUREMENT,
         unit=UnitOfTime.MINUTES,
         unique_id_suffix="irrigation_duration_ch1",
-        reporting_config=ReportingConfig(
-            min_interval=30, max_interval=900, reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=30, max_interval=900, reportable_change=1),
         translation_key="irrigation_duration_ch1",
         fallback_name="Hourly irrigation duration CH1",
     )
@@ -654,9 +631,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         state_class=SensorStateClass.MEASUREMENT,
         unit=UnitOfTime.MINUTES,
         unique_id_suffix="irrigation_duration_ch2",
-        reporting_config=ReportingConfig(
-            min_interval=30, max_interval=900, reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=30, max_interval=900, reportable_change=1),
         translation_key="irrigation_duration_ch2",
         fallback_name="Hourly irrigation duration CH2",
     )
@@ -669,9 +644,7 @@ class ValveAlarmSettingsCluster(LocalDataCluster):
         state_class=SensorStateClass.TOTAL_INCREASING,  # VOLUME must use total_increasing
         unit=UnitOfVolume.LITERS,
         unique_id_suffix="irrigation_volume",
-        reporting_config=ReportingConfig(
-            min_interval=30, max_interval=900, reportable_change=1
-        ),
+        reporting_config=ReportingConfig(min_interval=30, max_interval=900, reportable_change=1),
         translation_key="irrigation_volume",
         fallback_name="Hourly irrigation volume",
     )
