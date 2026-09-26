@@ -139,6 +139,16 @@ class SmartDripOptionsFlowHandler(OptionsFlowWithConfigEntry):
         options_schema = vol.Schema(
             {
                 vol.Required(
+                    CONF_SENSOR_RAIN_TODAY,
+                    default=str(self._get_val(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)),
+                ): str,
+                vol.Required(
+                    CONF_SENSOR_RAIN_INTENSITY,
+                    default=str(
+                        self._get_val(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
+                    ),
+                ): str,
+                vol.Required(
                     CONF_ZONE_1_AREA,
                     default=float(self._get_val(CONF_ZONE_1_AREA, DEFAULT_ZONE_1_AREA_M2)),
                 ): vol.Coerce(float),

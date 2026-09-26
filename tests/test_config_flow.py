@@ -8,6 +8,8 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.smart_drip.const import (
     CONF_MAX_BUCKET,
     CONF_SAFETY_LIMIT,
+    CONF_SENSOR_RAIN_INTENSITY,
+    CONF_SENSOR_RAIN_TODAY,
     CONF_ZONE_1_AREA,
     CONF_ZONE_1_ENABLED,
     CONF_ZONE_1_FLOW_RATE,
@@ -70,6 +72,8 @@ async def test_options_flow(hass: HomeAssistant) -> None:
     result2 = await hass.config_entries.options.async_configure(
         result["flow_id"],
         user_input={
+            CONF_SENSOR_RAIN_TODAY: "sensor.custom_rain_helper",
+            CONF_SENSOR_RAIN_INTENSITY: "sensor.custom_rain_rate",
             CONF_ZONE_1_AREA: 6.0,
             CONF_ZONE_1_FLOW_RATE: 50.0,
             CONF_ZONE_1_ENABLED: True,
@@ -81,5 +85,6 @@ async def test_options_flow(hass: HomeAssistant) -> None:
         },
     )
     assert result2["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_SENSOR_RAIN_TODAY] == "sensor.custom_rain_helper"
     assert entry.options[CONF_ZONE_1_AREA] == 6.0
     assert entry.options[CONF_MAX_BUCKET] == 30.0

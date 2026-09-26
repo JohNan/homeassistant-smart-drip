@@ -36,6 +36,8 @@
         "title": "Smart Drip Irrigation Options",
         "description": "Adjust zone areas, flow rates, bucket thresholds, and safety limits.",
         "data": {
+          "sensor_rain_today": "Daily Precipitation Sensor",
+          "sensor_rain_intensity": "Rain Intensity Sensor",
           "zone_1_area": "Zone 1 Irrigated Area (m²)",
           "zone_1_flow_rate": "Zone 1 Flow Rate (L/h)",
           "zone_1_enabled": "Enable Zone 1 Auto-Irrigation",
