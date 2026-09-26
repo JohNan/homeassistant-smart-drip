@@ -70,7 +70,7 @@ class SmartDripCard extends HTMLElement {
     const states = this._hass.states;
     const findEntity = (prefix, suffix) => {
       return Object.keys(states).find(
-        (id) => id.includes(prefix) && id.endsWith(suffix)
+        (id) => id.includes(prefix) && (id.endsWith(suffix) || id.includes(suffix))
       );
     };
 
@@ -129,9 +129,10 @@ class SmartDripCard extends HTMLElement {
         "button.smart_drip_run_zone_2",
       rain_today:
         this._config.rain_today_entity ||
+        findEntity("smart_drip", "rain_today") ||
         findEntity("vaderstation", "nederbord") ||
         findEntity("weatherflow", "precipitation_today") ||
-        "sensor.vaderstation_nederbord",
+        "sensor.smart_drip_rain_today",
     };
 
     this._discoveredEntities = entities;
@@ -427,7 +428,7 @@ class SmartDripCard extends HTMLElement {
             ? `
         <div class="metrics-grid">
           <div class="metric-box">
-            <div class="metric-val">${et0Val.toFixed(1)} <span class="metric-unit">mm/d</span></div>
+            <div class="metric-val">${et0Val.toFixed(1)} <span class="metric-unit">mm</span></div>
             <div class="metric-label">Daily ET₀</div>
           </div>
           <div class="metric-box">

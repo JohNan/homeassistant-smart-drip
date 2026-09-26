@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant
-from homeassistant.helpers.event import async_track_time_change
+from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -92,6 +92,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.last_et0: float = 0.0
         self.yesterday_rain: float = 0.0
+        self.rain_today: float = 0.0
         self.zone_deficits: dict[int, float] = {1: 0.0, 2: 0.0}
         self.zone_status: dict[int, dict[str, Any]] = {
             1: self._initial_zone_status(1),
@@ -123,7 +124,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if state is None or state.state in ("unknown", "unavailable"):
             return default
         try:
-            return float(state.state)
+            return float(str(state.state).replace(",", ".").strip())
         except (ValueError, TypeError):
             return default
 
@@ -151,7 +152,28 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._unsub_schedules.append(unsub_morning)
 
+        # Dynamic state change tracking for weather telemetry
+        weather_entities = [
+            self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY),
+            self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY),
+            self._get_conf(CONF_SENSOR_TEMP, DEFAULT_SENSOR_TEMP),
+        ]
+        valid_weather_entities = [e for e in weather_entities if isinstance(e, str) and e]
+        if valid_weather_entities:
+            unsub_weather = async_track_state_change_event(
+                self.hass,
+                valid_weather_entities,
+                self._handle_weather_state_change,
+            )
+            self._unsub_schedules.append(unsub_weather)
+
         # Initial zone status evaluation
+        await self.async_evaluate_zones()
+
+    async def _handle_weather_state_change(self, event: Event[EventStateChangedData]) -> None:
+        """Handle dynamic state change in weather telemetry sensors."""
+        entity_id = event.data.get("entity_id")
+        _LOGGER.debug("Weather telemetry changed for %s; re-evaluating zones.", entity_id)
         await self.async_evaluate_zones()
 
     async def _async_load_or_backfill_state(self) -> None:
@@ -315,6 +337,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rain_today = self._get_float_state(
             self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY), 0.0
         )
+        self.rain_today = rain_today
 
         safety_limit = int(self._get_conf(CONF_SAFETY_LIMIT, DEFAULT_SAFETY_LIMIT_SECONDS))
 
@@ -502,6 +525,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "last_et0": self.last_et0,
             "yesterday_rain": self.yesterday_rain,
+            "rain_today": self.rain_today,
             "zone_deficits": dict(self.zone_deficits),
             "zone_status": {z: dict(self.zone_status[z]) for z in (1, 2)},
             "interlock_active": self.interlock.is_active,
