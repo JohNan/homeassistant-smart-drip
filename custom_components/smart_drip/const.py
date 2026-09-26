@@ -75,3 +75,7 @@ STATUS_IDLE: Final = "Idle"
 SERVICE_CALCULATE_NOW: Final = "calculate_now"
 SERVICE_RESET_BUCKET: Final = "reset_bucket"
 SERVICE_RUN_ZONE: Final = "run_zone"
+
+# Storage
+STORAGE_VERSION: Final = 1
+STORAGE_KEY: Final = "smart_drip"
