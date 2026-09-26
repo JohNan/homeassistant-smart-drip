@@ -12,10 +12,12 @@ from homeassistant.config_entries import (
     OptionsFlowWithConfigEntry,
 )
 from homeassistant.core import callback
+from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_MAX_BUCKET,
     CONF_RAIN_IS_RATE,
+    CONF_RESET_STORAGE,
     CONF_SAFETY_LIMIT,
     CONF_SENSOR_DEWPOINT,
     CONF_SENSOR_HUMIDITY,
@@ -51,6 +53,8 @@ from .const import (
     DEFAULT_ZONE_2_FLOW_RATE_L_H,
     DEFAULT_ZONE_2_SWITCH,
     DOMAIN,
+    STORAGE_KEY,
+    STORAGE_VERSION,
 )
 
 
@@ -62,51 +66,56 @@ class SmartDripConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
+        store = Store[dict[str, Any]](self.hass, STORAGE_VERSION, STORAGE_KEY)
 
         if user_input is not None:
             await self.async_set_unique_id(DOMAIN)
             self._abort_if_unique_id_configured()
+
+            reset_storage = user_input.pop(CONF_RESET_STORAGE, False)
+            if reset_storage:
+                await store.async_remove()
 
             return self.async_create_entry(
                 title="Smart Drip Irrigation",
                 data=user_input,
             )
 
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_SENSOR_TEMP, default=DEFAULT_SENSOR_TEMP): str,
-                vol.Required(CONF_SENSOR_HUMIDITY, default=DEFAULT_SENSOR_HUMIDITY): str,
-                vol.Required(CONF_SENSOR_DEWPOINT, default=DEFAULT_SENSOR_DEWPOINT): str,
-                vol.Required(CONF_SENSOR_RADIATION, default=DEFAULT_SENSOR_RADIATION): str,
-                vol.Required(CONF_SENSOR_WIND, default=DEFAULT_SENSOR_WIND): str,
-                vol.Required(CONF_SENSOR_PRESSURE, default=DEFAULT_SENSOR_PRESSURE): str,
-                vol.Required(CONF_SENSOR_RAIN_TODAY, default=DEFAULT_SENSOR_RAIN_TODAY): str,
-                vol.Required(
-                    CONF_SENSOR_RAIN_INTENSITY, default=DEFAULT_SENSOR_RAIN_INTENSITY
-                ): str,
-                vol.Required(CONF_RAIN_IS_RATE, default=DEFAULT_RAIN_IS_RATE): bool,
-                vol.Required(CONF_ZONE_1_SWITCH, default=DEFAULT_ZONE_1_SWITCH): str,
-                vol.Required(CONF_ZONE_1_AREA, default=DEFAULT_ZONE_1_AREA_M2): vol.Coerce(float),
-                vol.Required(
-                    CONF_ZONE_1_FLOW_RATE, default=DEFAULT_ZONE_1_FLOW_RATE_L_H
-                ): vol.Coerce(float),
-                vol.Required(CONF_ZONE_1_ENABLED, default=True): bool,
-                vol.Required(CONF_ZONE_2_SWITCH, default=DEFAULT_ZONE_2_SWITCH): str,
-                vol.Required(CONF_ZONE_2_AREA, default=DEFAULT_ZONE_2_AREA_M2): vol.Coerce(float),
-                vol.Required(
-                    CONF_ZONE_2_FLOW_RATE, default=DEFAULT_ZONE_2_FLOW_RATE_L_H
-                ): vol.Coerce(float),
-                vol.Required(CONF_ZONE_2_ENABLED, default=False): bool,
-                vol.Required(CONF_MAX_BUCKET, default=DEFAULT_MAX_BUCKET_MM): vol.Coerce(float),
-                vol.Required(CONF_SAFETY_LIMIT, default=DEFAULT_SAFETY_LIMIT_SECONDS): vol.Coerce(
-                    int
-                ),
-            }
-        )
+        stored = await store.async_load()
+        has_existing_storage = stored is not None
+
+        schema_dict: dict[Any, Any] = {
+            vol.Required(CONF_SENSOR_TEMP, default=DEFAULT_SENSOR_TEMP): str,
+            vol.Required(CONF_SENSOR_HUMIDITY, default=DEFAULT_SENSOR_HUMIDITY): str,
+            vol.Required(CONF_SENSOR_DEWPOINT, default=DEFAULT_SENSOR_DEWPOINT): str,
+            vol.Required(CONF_SENSOR_RADIATION, default=DEFAULT_SENSOR_RADIATION): str,
+            vol.Required(CONF_SENSOR_WIND, default=DEFAULT_SENSOR_WIND): str,
+            vol.Required(CONF_SENSOR_PRESSURE, default=DEFAULT_SENSOR_PRESSURE): str,
+            vol.Required(CONF_SENSOR_RAIN_TODAY, default=DEFAULT_SENSOR_RAIN_TODAY): str,
+            vol.Required(CONF_SENSOR_RAIN_INTENSITY, default=DEFAULT_SENSOR_RAIN_INTENSITY): str,
+            vol.Required(CONF_RAIN_IS_RATE, default=DEFAULT_RAIN_IS_RATE): bool,
+            vol.Required(CONF_ZONE_1_SWITCH, default=DEFAULT_ZONE_1_SWITCH): str,
+            vol.Required(CONF_ZONE_1_AREA, default=DEFAULT_ZONE_1_AREA_M2): vol.Coerce(float),
+            vol.Required(CONF_ZONE_1_FLOW_RATE, default=DEFAULT_ZONE_1_FLOW_RATE_L_H): vol.Coerce(
+                float
+            ),
+            vol.Required(CONF_ZONE_1_ENABLED, default=True): bool,
+            vol.Required(CONF_ZONE_2_SWITCH, default=DEFAULT_ZONE_2_SWITCH): str,
+            vol.Required(CONF_ZONE_2_AREA, default=DEFAULT_ZONE_2_AREA_M2): vol.Coerce(float),
+            vol.Required(CONF_ZONE_2_FLOW_RATE, default=DEFAULT_ZONE_2_FLOW_RATE_L_H): vol.Coerce(
+                float
+            ),
+            vol.Required(CONF_ZONE_2_ENABLED, default=False): bool,
+            vol.Required(CONF_MAX_BUCKET, default=DEFAULT_MAX_BUCKET_MM): vol.Coerce(float),
+            vol.Required(CONF_SAFETY_LIMIT, default=DEFAULT_SAFETY_LIMIT_SECONDS): vol.Coerce(int),
+        }
+
+        if has_existing_storage:
+            schema_dict[vol.Optional(CONF_RESET_STORAGE, default=False)] = bool
 
         return self.async_show_form(
             step_id="user",
-            data_schema=data_schema,
+            data_schema=vol.Schema(schema_dict),
             errors=errors,
         )
 

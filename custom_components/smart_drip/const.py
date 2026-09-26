@@ -81,3 +81,4 @@ SERVICE_RUN_ZONE: Final = "run_zone"
 # Storage
 STORAGE_VERSION: Final = 1
 STORAGE_KEY: Final = "smart_drip"
+CONF_RESET_STORAGE: Final = "reset_storage"
