@@ -233,3 +233,36 @@ async def test_save_state_handles_storage_exception(
     ):
         # Should not raise exception
         await coordinator.async_save_state()
+
+
+@pytest.mark.asyncio
+async def test_storage_migrates_legacy_per_entry_file(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """Test coordinator migrates legacy per-entry storage to domain storage."""
+    mock_entry.add_to_hass(hass)
+    coordinator = SmartDripCoordinator(hass, mock_entry)
+
+    today_str = dt_util.now().date().isoformat()
+    legacy_data = {
+        "last_et0": 2.5,
+        "yesterday_rain": 1.2,
+        "rain_today": 0.5,
+        "rain_today_date": today_str,
+        "zone_deficits": {"1": 3.0, "2": 0.0},
+        "zone_status": {},
+    }
+
+    with (
+        patch.object(Store, "async_load", side_effect=[None, legacy_data]),
+        patch.object(Store, "async_save", new_callable=AsyncMock) as mock_save,
+        patch.object(Store, "async_remove", new_callable=AsyncMock) as mock_remove,
+        patch("custom_components.smart_drip.coordinator.async_track_time_change"),
+    ):
+        await coordinator.async_setup()
+
+    assert coordinator.last_et0 == 2.5
+    assert coordinator.yesterday_rain == 1.2
+    assert coordinator.rain_today == 0.5
+    mock_save.assert_awaited()
+    mock_remove.assert_awaited_once()

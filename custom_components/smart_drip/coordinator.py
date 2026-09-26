@@ -91,7 +91,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._store: Store[dict[str, Any]] = Store(
             hass,
             STORAGE_VERSION,
-            f"{STORAGE_KEY}.{entry.entry_id}",
+            STORAGE_KEY,
         )
 
         self.last_et0: float = 0.0
@@ -227,6 +227,18 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_load_or_backfill_state(self) -> None:
         """Load persisted state from storage or backfill from recorder on cold start."""
         stored = await self._store.async_load()
+        if not stored:
+            legacy_store = Store[dict[str, Any]](
+                self.hass,
+                STORAGE_VERSION,
+                f"{STORAGE_KEY}.{self.entry.entry_id}",
+            )
+            stored = await legacy_store.async_load()
+            if stored:
+                await self._store.async_save(stored)
+                with suppress(Exception):
+                    await legacy_store.async_remove()
+
         if stored:
             _LOGGER.debug("Restoring persisted Smart Drip state from storage.")
             self.last_et0 = float(stored.get("last_et0", 0.0))
