@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from contextlib import suppress
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -59,6 +61,8 @@ from .const import (
     STATUS_IDLE,
     STATUS_READY,
     STATUS_RUNNING,
+    STORAGE_KEY,
+    STORAGE_VERSION,
 )
 from .interlock import SolenoidInterlock
 
@@ -79,6 +83,11 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.interlock = SolenoidInterlock(
             interlock_delay=INTERLOCK_DELAY_SECONDS,
             max_duration_seconds=self._get_conf(CONF_SAFETY_LIMIT, DEFAULT_SAFETY_LIMIT_SECONDS),
+        )
+        self._store: Store[dict[str, Any]] = Store(
+            hass,
+            STORAGE_VERSION,
+            f"{STORAGE_KEY}.{entry.entry_id}",
         )
 
         self.last_et0: float = 0.0
@@ -119,7 +128,9 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return default
 
     async def async_setup(self) -> None:
-        """Setup time listeners and initial state evaluation."""
+        """Setup persistent storage, time listeners, and initial state evaluation."""
+        await self._async_load_or_backfill_state()
+
         # Daily ET0 computation at 23:00:00
         unsub_et0 = async_track_time_change(
             self.hass,
@@ -142,6 +153,84 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Initial zone status evaluation
         await self.async_evaluate_zones()
+
+    async def _async_load_or_backfill_state(self) -> None:
+        """Load persisted state from storage or backfill from recorder on cold start."""
+        stored = await self._store.async_load()
+        if stored:
+            _LOGGER.debug("Restoring persisted Smart Drip state from storage.")
+            self.last_et0 = float(stored.get("last_et0", 0.0))
+            self.yesterday_rain = float(stored.get("yesterday_rain", 0.0))
+            if "zone_deficits" in stored and isinstance(stored["zone_deficits"], dict):
+                for k, v in stored["zone_deficits"].items():
+                    with suppress(ValueError, TypeError):
+                        self.zone_deficits[int(k)] = float(v)
+            if "zone_status" in stored and isinstance(stored["zone_status"], dict):
+                for k, v in stored["zone_status"].items():
+                    with suppress(ValueError, TypeError):
+                        zk = int(k)
+                        if isinstance(v, dict):
+                            self.zone_status[zk] = {**self._initial_zone_status(zk), **v}
+            return
+
+        _LOGGER.info("No persisted state found in storage. Attempting first-run recorder backfill.")
+        await self._async_backfill_yesterday_rain()
+        await self.async_save_state()
+
+    async def _async_backfill_yesterday_rain(self) -> None:
+        """Query recorder database for yesterday's precipitation on cold start."""
+        if "recorder" not in self.hass.config.components:
+            _LOGGER.debug("Recorder integration not active; skipping DB backfill.")
+            return
+
+        rain_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
+        now = dt_util.now()
+        yesterday_end = now.replace(hour=23, minute=59, second=59, microsecond=0) - timedelta(
+            days=1
+        )
+        yesterday_start = yesterday_end - timedelta(hours=1)
+
+        def _query() -> dict[str, Any]:
+            from homeassistant.components.recorder.history import get_significant_states
+
+            return get_significant_states(
+                self.hass,
+                start_time=yesterday_start,
+                end_time=yesterday_end,
+                entity_ids=[rain_entity],
+                significant_changes_only=False,
+            )
+
+        try:
+            from homeassistant.components.recorder import get_instance
+
+            recorder_instance = get_instance(self.hass)
+            states_dict = await recorder_instance.async_add_executor_job(_query)
+            if rain_entity in states_dict and states_dict[rain_entity]:
+                last_state = states_dict[rain_entity][-1]
+                val = getattr(last_state, "state", None)
+                if val is not None and val not in ("unknown", "unavailable"):
+                    self.yesterday_rain = float(val)
+                    _LOGGER.info(
+                        "Seeded yesterday's rainfall from recorder DB (%s): %.2f mm",
+                        rain_entity,
+                        self.yesterday_rain,
+                    )
+        except Exception as err:
+            _LOGGER.warning("Could not backfill historical rain from recorder: %s", err)
+
+    async def async_save_state(self) -> None:
+        """Persist current state to Home Assistant storage."""
+        data = {
+            "last_et0": self.last_et0,
+            "yesterday_rain": self.yesterday_rain,
+            "zone_deficits": {str(k): v for k, v in self.zone_deficits.items()},
+            "zone_status": {str(k): v for k, v in self.zone_status.items()},
+        }
+        try:
+            await self._store.async_save(data)
+        except Exception as err:
+            _LOGGER.error("Failed to save Smart Drip state to storage: %s", err)
 
     async def async_unload(self) -> None:
         """Unload scheduled timers and release resources."""
@@ -214,6 +303,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.async_evaluate_zones()
         self.async_set_updated_data(self._build_coordinator_data())
+        await self.async_save_state()
         return et0
 
     async def async_evaluate_zones(self) -> None:
@@ -336,6 +426,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.zone_status[z]["target_duration_seconds"] = 0
                 self.zone_status[z]["estimated_liters"] = 0.0
                 self.async_set_updated_data(self._build_coordinator_data())
+                await self.async_save_state()
 
             _LOGGER.info("Starting guarded execution for Zone %s (%s s).", zone, duration)
             await self.interlock.execute_irrigation(
@@ -384,6 +475,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.zone_status[zone]["state"] = STATUS_IDLE
             self.zone_status[zone]["last_run_timestamp"] = dt_util.now().isoformat()
             self.async_set_updated_data(self._build_coordinator_data())
+            await self.async_save_state()
 
         await self.interlock.execute_irrigation(
             channel=zone,
@@ -403,6 +495,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self.async_evaluate_zones()
         self.async_set_updated_data(self._build_coordinator_data())
+        await self.async_save_state()
 
     def _build_coordinator_data(self) -> dict[str, Any]:
         """Construct the reactive coordinator payload for entities."""

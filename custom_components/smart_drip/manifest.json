@@ -1,7 +1,7 @@
 {
   "domain": "smart_drip",
   "name": "Smart Drip Irrigation",
-  "after_dependencies": ["frontend", "http", "lovelace"],
+  "after_dependencies": ["frontend", "http", "lovelace", "recorder"],
   "codeowners": ["@JohNan"],
   "config_flow": true,
   "documentation": "https://github.com/JohNan/homeassistant-smart-drip",

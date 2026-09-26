@@ -36,6 +36,7 @@ integration/
 │   ├── test_entities.py          # Sensor, switch, button, service, and unload tests
 │   ├── test_frontend.py          # Lovelace card registration and static path tests
 │   ├── test_interlock.py         # Hardware interlock, mutual exclusion, safety tests
+│   ├── test_storage.py           # Storage persistence and recorder cold-start backfill tests
 │   └── test_config_flow.py       # Config flow and options flow tests
 ├── pyproject.toml                # UV package definition, Ruff config, fail_under=70 coverage
 ├── mise.toml                     # Mise tasks: test, lint, format, typecheck
@@ -57,6 +58,8 @@ integration/
    Irrigation runtime must be clamped to a maximum of $2700\text{ s}$ (45 min) by default, with a hard watchdog limit of $3600\text{ s}$ (60 min).
 4. **Transparent Decision Status (`sensor.py`)**:
    The zone status sensor must always display human-readable reasoning in its `reason` attribute explaining why irrigation is running or why it was skipped.
+5. **Persistent State & Cold-Start Recorder Ingestion (`coordinator.py`)**:
+   Accumulated water deficits, yesterday's rainfall, and calculation timestamps are persisted to Home Assistant's `.storage` via `Store`. On first-run cold starts when storage is empty, the coordinator safely queries the built-in `recorder` DB to seed yesterday's precipitation without blocking the event loop.
 
 ---
 

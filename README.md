@@ -11,7 +11,8 @@ Custom Home Assistant integration for smart micro-drip irrigation using the **So
   - Mandatory 10-second idle interlock between channel switches for latching capacitor recharge and pressure stabilization.
   - Automatic software safety ceiling clamped at 45 minutes ($2700\text{ s}$).
 - **Transparent Decision State Machine**: Clear status reporting (`Ready`, `Running`, `Skipped: Active Rain`, `Skipped: Daily Rain Exceeded`, `Skipped: Yesterday Heavy Soak`, `Skipped: Low Temperature`, `Skipped: Zero Deficit`, `Skipped: Zone Disabled`) with human-readable diagnostic explanations.
-- **Config Flow & UI Options**: Full Home Assistant UI setup with entity selection, zone calibration, and options flow.
+- **Persistent State Storage**: Soil water deficits, yesterday's precipitation totals, and run status are stored persistently in Home Assistant's `.storage` store across system restarts.
+- **Cold-Start History Ingestion**: Safely backfills yesterday's rainfall telemetry directly from Home Assistant's built-in recorder database on clean initial installations to arm rainfall soak guards immediately on Day 1.
 - **Lovelace Custom Card**: Native custom card (`custom:smart-drip-card`) auto-loaded on integration startup with live $ET_0$/rain/deficit metrics, status decision banner, zone toggles, and manual run controls.
 
 ## Dashboard Lovelace Card
