@@ -274,3 +274,27 @@ async def test_coordinator_manual_run_and_triggers(hass: HomeAssistant) -> None:
     # Test unload
     await coordinator.async_unload()
     assert len(coordinator._unsub_schedules) == 0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_dynamic_weather_state_change(hass: HomeAssistant) -> None:
+    """Test reactive zone re-evaluation when weather telemetry states change."""
+    setup_mock_weather_sensors(hass, temp=21.0, rain_today=0.0)
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    assert coordinator.rain_today == 0.0
+    assert coordinator.zone_status[1]["state"] == STATUS_SKIPPED_ZERO_DEFICIT
+
+    # Simulate rainfall update during the day with comma formatting support ("2,6")
+    hass.states.async_set(DEFAULT_SENSOR_RAIN_TODAY, "2,6")
+    await hass.async_block_till_done()
+
+    assert coordinator.rain_today == 2.6
+    assert coordinator.zone_status[1]["state"] == STATUS_SKIPPED_DAILY_RAIN_EXCEEDED
+    assert coordinator.zone_status[1]["last_rain_today_mm"] == 2.6
+    assert "2.6 mm" in coordinator.zone_status[1]["reason"]
+    assert "Rainfall today" in coordinator.zone_status[1]["reason"]

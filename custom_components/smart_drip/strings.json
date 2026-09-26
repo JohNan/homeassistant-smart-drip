@@ -53,6 +53,9 @@
       "daily_et0": {
         "name": "Daily ET0"
       },
+      "rain_today": {
+        "name": "Rain Today"
+      },
       "zone_status": {
         "name": "Zone Status"
       }

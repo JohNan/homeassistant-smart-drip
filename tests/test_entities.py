@@ -50,12 +50,18 @@ async def test_entity_platforms_setup(hass: HomeAssistant, mock_entry: MockConfi
 
     et0_sensor = hass.states.get("sensor.smart_drip_daily_et0")
     assert et0_sensor is not None
+    assert et0_sensor.attributes.get("unit_of_measurement") == "mm"
+
+    rain_today_sensor = hass.states.get("sensor.smart_drip_rain_today")
+    assert rain_today_sensor is not None
+    assert rain_today_sensor.attributes.get("unit_of_measurement") == "mm"
 
     deficit_sensor = hass.states.get("sensor.smart_drip_zone_1_deficit")
     assert deficit_sensor is not None
 
     yesterday_rain_sensor = hass.states.get("sensor.smart_drip_yesterday_rain")
     assert yesterday_rain_sensor is not None
+    assert yesterday_rain_sensor.attributes.get("unit_of_measurement") == "mm"
 
     # Check zone switches exist
     z1_switch = hass.states.get("switch.smart_drip_zone_1_auto_irrigation")
