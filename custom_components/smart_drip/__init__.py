@@ -18,6 +18,7 @@ from .const import (
     SERVICE_RUN_ZONE,
 )
 from .coordinator import SmartDripCoordinator
+from .frontend import async_register_frontend
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -38,6 +39,8 @@ SERVICE_RUN_ZONE_SCHEMA: Final = vol.Schema(
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Smart Drip from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    await async_register_frontend(hass)
 
     coordinator = SmartDripCoordinator(hass, entry)
     await coordinator.async_setup()

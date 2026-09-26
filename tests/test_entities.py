@@ -54,14 +54,23 @@ async def test_entity_platforms_setup(hass: HomeAssistant, mock_entry: MockConfi
     deficit_sensor = hass.states.get("sensor.smart_drip_zone_1_deficit")
     assert deficit_sensor is not None
 
+    yesterday_rain_sensor = hass.states.get("sensor.smart_drip_yesterday_rain")
+    assert yesterday_rain_sensor is not None
+
     # Check zone switches exist
     z1_switch = hass.states.get("switch.smart_drip_zone_1_auto_irrigation")
     assert z1_switch is not None
     assert z1_switch.state == "on"
 
-    # Check manual run buttons exist
+    # Check buttons exist
     z1_button = hass.states.get("button.smart_drip_run_zone_1_now")
     assert z1_button is not None
+
+    calc_btn = hass.states.get("button.smart_drip_calculate_et0_now")
+    assert calc_btn is not None
+
+    reset_btn = hass.states.get("button.smart_drip_reset_water_deficit")
+    assert reset_btn is not None
 
 
 @pytest.mark.asyncio
@@ -124,6 +133,26 @@ async def test_button_press_triggers_run_zone(
             blocking=True,
         )
         mock_run.assert_awaited_once_with(1, 600)
+
+    with patch.object(
+        coordinator, "async_calculate_daily_et0", new_callable=AsyncMock
+    ) as mock_calc:
+        await hass.services.async_call(
+            "button",
+            "press",
+            {"entity_id": "button.smart_drip_calculate_et0_now"},
+            blocking=True,
+        )
+        mock_calc.assert_awaited_once()
+
+    with patch.object(coordinator, "async_reset_bucket", new_callable=AsyncMock) as mock_reset:
+        await hass.services.async_call(
+            "button",
+            "press",
+            {"entity_id": "button.smart_drip_reset_water_deficit"},
+            blocking=True,
+        )
+        mock_reset.assert_awaited_once_with("all")
 
 
 @pytest.mark.asyncio

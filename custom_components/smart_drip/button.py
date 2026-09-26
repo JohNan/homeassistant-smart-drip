@@ -21,9 +21,11 @@ async def async_setup_entry(
     """Set up smart_drip buttons from a config entry."""
     coordinator: SmartDripCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    buttons = [
+    buttons: list[ButtonEntity] = [
         SmartDripRunZoneButton(coordinator, entry, zone=1),
         SmartDripRunZoneButton(coordinator, entry, zone=2),
+        SmartDripCalculateET0Button(coordinator, entry),
+        SmartDripResetBucketButton(coordinator, entry),
     ]
 
     async_add_entities(buttons)
@@ -56,3 +58,53 @@ class SmartDripRunZoneButton(CoordinatorEntity[SmartDripCoordinator], ButtonEnti
         duration = target if target > 0 else 600
 
         await self.coordinator.async_run_zone_manual(self.zone, duration)
+
+
+class SmartDripCalculateET0Button(CoordinatorEntity[SmartDripCoordinator], ButtonEntity):
+    """Button to trigger an immediate recalculation of daily ET0 and deficit."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: SmartDripCoordinator, entry: ConfigEntry) -> None:
+        """Initialize calculate ET0 button."""
+        super().__init__(coordinator)
+        self.entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_calculate_et0"
+        self._attr_name = "Calculate ET0 Now"
+        self._attr_icon = "mdi:calculator"
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Smart Drip",
+            manufacturer="Sonoff / WeatherFlow / Gardena",
+            model="Micro-Drip ET0 Controller",
+        )
+
+    async def async_press(self) -> None:
+        """Press the button to recalculate ET0."""
+        await self.coordinator.async_calculate_daily_et0()
+
+
+class SmartDripResetBucketButton(CoordinatorEntity[SmartDripCoordinator], ButtonEntity):
+    """Button to reset accumulated soil moisture deficit."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: SmartDripCoordinator, entry: ConfigEntry) -> None:
+        """Initialize reset bucket button."""
+        super().__init__(coordinator)
+        self.entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_reset_deficit"
+        self._attr_name = "Reset Water Deficit"
+        self._attr_icon = "mdi:refresh"
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Smart Drip",
+            manufacturer="Sonoff / WeatherFlow / Gardena",
+            model="Micro-Drip ET0 Controller",
+        )
+
+    async def async_press(self) -> None:
+        """Press the button to reset water deficit."""
+        await self.coordinator.async_reset_bucket("all")

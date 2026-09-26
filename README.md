@@ -12,11 +12,24 @@ Custom Home Assistant integration for smart micro-drip irrigation using the **So
   - Automatic software safety ceiling clamped at 45 minutes ($2700\text{ s}$).
 - **Transparent Decision State Machine**: Clear status reporting (`Ready`, `Running`, `Skipped: Active Rain`, `Skipped: Daily Rain Exceeded`, `Skipped: Yesterday Heavy Soak`, `Skipped: Low Temperature`, `Skipped: Zero Deficit`, `Skipped: Zone Disabled`) with human-readable diagnostic explanations.
 - **Config Flow & UI Options**: Full Home Assistant UI setup with entity selection, zone calibration, and options flow.
-- **Lovelace Ready**: Diagnostic gauges, status indicators, and manual execution triggers.
+- **Lovelace Custom Card**: Native custom card (`custom:smart-drip-card`) auto-loaded on integration startup with live $ET_0$/rain/deficit metrics, status decision banner, zone toggles, and manual run controls.
 
-## Architecture
+## Dashboard Lovelace Card
 
-See [ARCHITECTURE_SPEC.md](file:///workspace/water-valve/ARCHITECTURE_SPEC.md) for full hardware stack specifications, hydraulic models, and entity mappings.
+The integration automatically registers and serves its custom dashboard card:
+* **Card Type**: `custom:smart-drip-card`
+* **Auto-Loading**: Automatically injected into the Home Assistant frontend and registered as a Lovelace resource. No manual file copying or resource configuration required.
+* **UI Card Picker**: Available directly in the "Add Card" dashboard menu as **Smart Drip Irrigation Card** with visual live preview and visual configuration editor.
+
+### Example YAML Configuration
+
+```yaml
+type: custom:smart-drip-card
+title: Smart Drip Irrigation
+show_gauges: true
+show_zones: true
+show_actions: true
+```
 
 ## Development & Testing
 
