@@ -29,7 +29,9 @@ CONF_SENSOR_WIND: Final = "sensor_wind"
 CONF_SENSOR_PRESSURE: Final = "sensor_pressure"
 CONF_SENSOR_RAIN_TODAY: Final = "sensor_rain_today"
 CONF_SENSOR_RAIN_INTENSITY: Final = "sensor_rain_intensity"
+CONF_RAIN_IS_RATE: Final = "rain_is_rate"
 
+DEFAULT_RAIN_IS_RATE: Final = True
 DEFAULT_SENSOR_TEMP: Final = "sensor.vaderstation_temperatur"
 DEFAULT_SENSOR_HUMIDITY: Final = "sensor.vaderstation_luftfuktighet"
 DEFAULT_SENSOR_DEWPOINT: Final = "sensor.vaderstation_daggpunkt"

@@ -13,6 +13,7 @@
           "sensor_pressure": "Barometric Pressure Sensor",
           "sensor_rain_today": "Daily Precipitation Sensor",
           "sensor_rain_intensity": "Rain Intensity Sensor",
+          "rain_is_rate": "Derive Daily Rain via Real-Time Rate Integration",
           "zone_1_switch": "Zone 1 Valve Switch Entity",
           "zone_2_switch": "Zone 2 Valve Switch Entity",
           "zone_1_area": "Zone 1 Irrigated Area (m²)",
@@ -38,6 +39,7 @@
         "data": {
           "sensor_rain_today": "Daily Precipitation Sensor",
           "sensor_rain_intensity": "Rain Intensity Sensor",
+          "rain_is_rate": "Derive Daily Rain via Real-Time Rate Integration",
           "zone_1_area": "Zone 1 Irrigated Area (m²)",
           "zone_1_flow_rate": "Zone 1 Flow Rate (L/h)",
           "zone_1_enabled": "Enable Zone 1 Auto-Irrigation",

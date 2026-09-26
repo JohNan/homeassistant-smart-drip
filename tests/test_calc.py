@@ -1,5 +1,7 @@
 """Unit tests for smart_drip mathematical models and pure calculations."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from custom_components.smart_drip.calc import (
@@ -11,6 +13,8 @@ from custom_components.smart_drip.calc import (
     calculate_saturation_vapor_pressure,
     calculate_slope_vapor_pressure,
     evaluate_irrigation_decision,
+    integrate_state_history,
+    integrate_trapezoidal_rain,
 )
 from custom_components.smart_drip.const import (
     DEFAULT_MAX_BUCKET_MM,
@@ -242,3 +246,37 @@ def test_evaluate_irrigation_decision_rules() -> None:
     )
     assert res == STATUS_READY
     assert "Deficit: 3.00 mm" in reason
+
+
+def test_integrate_trapezoidal_rain() -> None:
+    """Test trapezoidal rain accumulation from rate pairs."""
+    # 0 duration
+    assert integrate_trapezoidal_rain(10.0, 10.0, 0.0) == 0.0
+    # Negative duration
+    assert integrate_trapezoidal_rain(10.0, 10.0, -10.0) == 0.0
+    # Steady 2.6 mm/h for 1 hour (3600s) = 2.6 mm
+    assert round(integrate_trapezoidal_rain(2.6, 2.6, 3600.0), 2) == 2.6
+    # Rate change from 4.0 to 0.0 over 30 minutes (1800s) = 1.0 mm
+    assert round(integrate_trapezoidal_rain(4.0, 0.0, 1800.0), 2) == 1.0
+
+
+def test_integrate_state_history() -> None:
+    """Test integrating historical series of timestamped rain rates."""
+    # Empty or single state
+    assert integrate_state_history([]) == 0.0
+    t0 = datetime(2026, 9, 26, 10, 0, 0, tzinfo=UTC)
+    assert integrate_state_history([(2.0, t0)]) == 0.0
+
+    # 10:00 rate=2.0 -> 10:30 rate=4.0 -> 11:00 rate=0.0
+    t1 = datetime(2026, 9, 26, 10, 30, 0, tzinfo=UTC)
+    t2 = datetime(2026, 9, 26, 11, 0, 0, tzinfo=UTC)
+    history = [(2.0, t0), (4.0, t1), (0.0, t2)]
+    # First interval (1800s): ((2+4)/2) * 0.5 = 1.5 mm
+    # Second interval (1800s): ((4+0)/2) * 0.5 = 1.0 mm
+    # Total = 2.5 mm
+    assert integrate_state_history(history) == 2.5
+
+    # Outage gap exceeding max_gap_seconds (e.g. 5 hours) is safely ignored
+    t3 = datetime(2026, 9, 26, 16, 0, 0, tzinfo=UTC)
+    history_gap = [(2.0, t0), (4.0, t3)]
+    assert integrate_state_history(history_gap, max_gap_seconds=3600.0) == 0.0

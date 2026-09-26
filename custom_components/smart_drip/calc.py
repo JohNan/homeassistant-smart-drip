@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime
 
 from .const import (
     DEFAULT_MAX_BUCKET_MM,
@@ -187,3 +188,41 @@ def evaluate_irrigation_decision(
         STATUS_READY,
         f"Zone ready for irrigation. Deficit: {deficit_mm:.2f} mm.",
     )
+
+
+def integrate_trapezoidal_rain(
+    rate1_mm_h: float,
+    rate2_mm_h: float,
+    duration_seconds: float,
+) -> float:
+    """Calculate accumulated precipitation (mm) over duration using trapezoidal integration.
+
+    Rain (mm) = ((rate1 + rate2) / 2) * (duration_seconds / 3600)
+    """
+    if duration_seconds <= 0.0:
+        return 0.0
+    r1 = max(0.0, rate1_mm_h)
+    r2 = max(0.0, rate2_mm_h)
+    return ((r1 + r2) / 2.0) * (duration_seconds / 3600.0)
+
+
+def integrate_state_history(
+    states: list[tuple[float, datetime]],
+    max_gap_seconds: float = 3600.0,
+) -> float:
+    """Integrate a series of timestamped rate values using trapezoidal rule.
+
+    states: list of (rate_mm_h, timestamp) sorted by timestamp ascending.
+    """
+    if len(states) < 2:
+        return 0.0
+
+    total_rain = 0.0
+    for i in range(1, len(states)):
+        r1, t1 = states[i - 1]
+        r2, t2 = states[i]
+        dt = (t2 - t1).total_seconds()
+        if 0 < dt <= max_gap_seconds:
+            total_rain += integrate_trapezoidal_rain(r1, r2, dt)
+
+    return round(total_rain, 2)
