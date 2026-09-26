@@ -1,0 +1,100 @@
+blueprint:
+  name: "Sonoff SWV-ZF2 Micro-Drip Irrigation Scheduler"
+  description: >
+    Automated pulse watering for newly planted micro-drip zones.
+    Enforces hardware interlock rules: zones run sequentially to prevent
+    pressure loss and avoid conflicting latching solenoid pulses.
+  domain: automation
+  input:
+    valve_ch1:
+      name: "Zone 1 Valve (Channel 1)"
+      description: "Entity ID for Channel 1 switch."
+      selector:
+        entity:
+          domain: switch
+    valve_ch2:
+      name: "Zone 2 Valve (Channel 2)"
+      description: "Entity ID for Channel 2 switch."
+      selector:
+        entity:
+          domain: switch
+    duration_ch1:
+      name: "Zone 1 Run Duration (minutes)"
+      description: "Run time for micro-drip circuit 1."
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 45
+          unit_of_measurement: "min"
+          mode: slider
+    duration_ch2:
+      name: "Zone 2 Run Duration (minutes)"
+      description: "Run time for micro-drip circuit 2."
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 45
+          unit_of_measurement: "min"
+          mode: slider
+    morning_time:
+      name: "Morning Run Time"
+      description: "Time for the primary morning soak."
+      default: "06:00:00"
+      selector:
+        time: {}
+    afternoon_time:
+      name: "Afternoon Run Time"
+      description: "Time for the secondary afternoon top-up."
+      default: "17:30:00"
+      selector:
+        time: {}
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - trigger: time
+    at: !input morning_time
+    id: morning_pulse
+  - trigger: time
+    at: !input afternoon_time
+    id: afternoon_pulse
+
+action:
+  # --- Sequence Zone 1 ---
+  - alias: "Activate Zone 1 (Channel 1)"
+    action: switch.turn_on
+    target:
+      entity_id: !input valve_ch1
+
+  - alias: "Irrigate Zone 1 for designated duration"
+    delay:
+      minutes: !input duration_ch1
+
+  - alias: "Deactivate Zone 1 (Channel 1)"
+    action: switch.turn_off
+    target:
+      entity_id: !input valve_ch1
+
+  # --- Interlock Settling Gap ---
+  # Allows solenoid latch capacitor to recharge and line pressure to stabilize
+  - alias: "Hydraulic and solenoid settle delay"
+    delay:
+      seconds: 5
+
+  # --- Sequence Zone 2 ---
+  - alias: "Activate Zone 2 (Channel 2)"
+    action: switch.turn_on
+    target:
+      entity_id: !input valve_ch2
+
+  - alias: "Irrigate Zone 2 for designated duration"
+    delay:
+      minutes: !input duration_ch2
+
+  - alias: "Deactivate Zone 2 (Channel 2)"
+    action: switch.turn_off
+    target:
+      entity_id: !input valve_ch2

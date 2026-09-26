@@ -1,0 +1,34 @@
+alias: "Irrigation - Stora Rabatten Smart Run"
+description: "Executes calculated Evapotranspiration runtime using Tempest and Sonoff SWV-ZF2."
+mode: single
+max_exceeded: silent
+
+trigger:
+  - trigger: time
+    at: "06:00:00"
+
+condition:
+  # Only irrigate if Smart Irrigation calculated a water deficit (> 0 seconds)
+  - condition: numeric_state
+    entity_id: sensor.smart_irrigation_stora_rabatten
+    above: 0
+
+action:
+  - alias: "Open Sonoff valve Channel 1"
+    action: switch.turn_on
+    target:
+      entity_id: switch.sonoff_water_valve_channel_1
+
+  - alias: "Irrigate for exact calculated seconds (clamped to 45 min safety ceiling)"
+    delay:
+      seconds: "{{ [states('sensor.smart_irrigation_stora_rabatten') | int(0), 2700] | min }}"
+
+  - alias: "Close Sonoff valve Channel 1"
+    action: switch.turn_off
+    target:
+      entity_id: switch.sonoff_water_valve_channel_1
+
+  - alias: "Reset water bucket for Stora rabatten"
+    action: smart_irrigation.reset_bucket
+    data:
+      zone: "stora_rabatten"

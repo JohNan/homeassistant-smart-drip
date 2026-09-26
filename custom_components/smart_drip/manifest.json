@@ -1,0 +1,12 @@
+{
+  "domain": "smart_drip",
+  "name": "Smart Drip Irrigation",
+  "codeowners": ["@JohNan"],
+  "config_flow": true,
+  "documentation": "https://github.com/JohNan/homeassistant-smart-drip",
+  "issue_tracker": "https://github.com/JohNan/homeassistant-smart-drip/issues",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "version": "1.0.0",
+  "requirements": []
+}

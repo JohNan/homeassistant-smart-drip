@@ -1,0 +1,221 @@
+blueprint:
+  name: "Single-Zone Micro-Drip Irrigation Scheduler (Tempest WeatherFlow Local & Cloud)"
+  description: >
+    Automated pulse watering designed for newly planted gardens. Integrates directly
+    with Tempest WeatherFlow (Local UDP and Cloud) to provide dual-source rain
+    accumulation checks, instant haptic rain detection, and over-watering protection.
+  domain: automation
+  input:
+    valve_switch:
+      name: "Water Valve Switch"
+      description: "Switch entity controlling the valve (e.g. Channel 1)."
+      selector:
+        entity:
+          domain: switch
+
+    run_duration:
+      name: "Run Duration"
+      description: "Watering duration per pulse."
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+          unit_of_measurement: "min"
+          mode: slider
+
+    morning_time:
+      name: "Morning Pulse Time"
+      description: "Primary watering schedule."
+      default: "06:00:00"
+      selector:
+        time: {}
+
+    enable_evening:
+      name: "Enable Evening Pulse"
+      description: "Run a second top-up pulse in late afternoon/evening."
+      default: true
+      selector:
+        boolean: {}
+
+    evening_time:
+      name: "Evening Pulse Time"
+      description: "Secondary watering schedule (applies if enabled)."
+      default: "17:30:00"
+      selector:
+        time: {}
+
+    # --- Tempest WeatherFlow Configuration ---
+    tempest_rain_today_local:
+      name: "Tempest Rain Today - Local UDP (Optional)"
+      description: "Local high-rate precipitation accumulation sensor (e.g. sensor.tempest_st_xxxx_rain_today)."
+      default: none
+      selector:
+        entity:
+          domain: sensor
+          device_class: precipitation
+
+    tempest_rain_today_cloud:
+      name: "Tempest Rain Today - Cloud (Optional)"
+      description: "Cloud-calibrated Rain Check accumulation sensor (e.g. sensor.weatherflow_precipitation_today)."
+      default: none
+      selector:
+        entity:
+          domain: sensor
+          device_class: precipitation
+
+    rain_today_cutoff:
+      name: "Rain Today Cutoff Threshold (mm or in)"
+      description: "Skip watering if either Local or Cloud reports rain today exceeding this amount."
+      default: 2.5
+      selector:
+        number:
+          min: 0.5
+          max: 25.0
+          step: 0.5
+          mode: box
+
+    tempest_rain_active_local:
+      name: "Tempest Real-Time Rain Sensor (Optional)"
+      description: "Instant haptic precipitation binary sensor (e.g. binary_sensor.tempest_st_xxxx_precipitation)."
+      default: none
+      selector:
+        entity:
+          domain: binary_sensor
+
+    tempest_rain_yesterday:
+      name: "Tempest Rain Yesterday Sensor (Optional)"
+      description: "Precipitation recorded yesterday (e.g. sensor.weatherflow_precipitation_yesterday)."
+      default: none
+      selector:
+        entity:
+          domain: sensor
+          device_class: precipitation
+
+    rain_yesterday_cutoff:
+      name: "Rain Yesterday Heavy Soak Cutoff (mm or in)"
+      description: "Skip the morning cycle if it poured heavily yesterday (e.g. 10 mm)."
+      default: 10.0
+      selector:
+        number:
+          min: 2.0
+          max: 50.0
+          step: 1.0
+          mode: box
+
+    soil_moisture_sensor:
+      name: "Soil Moisture Sensor (Optional)"
+      description: "In-ground moisture sensor to prevent waterlogging new roots."
+      default: none
+      selector:
+        entity:
+          domain: sensor
+          device_class: moisture
+
+    soil_moisture_threshold:
+      name: "Soil Moisture Cutoff (%)"
+      description: "Skip watering if soil moisture is above this percentage."
+      default: 45
+      selector:
+        number:
+          min: 10
+          max: 90
+          unit_of_measurement: "%"
+          mode: slider
+
+mode: single
+max_exceeded: silent
+
+variables:
+  var_enable_evening: !input enable_evening
+  var_rain_local: !input tempest_rain_today_local
+  var_rain_cloud: !input tempest_rain_today_cloud
+  var_rain_today_cutoff: !input rain_today_cutoff
+  var_rain_active: !input tempest_rain_active_local
+  var_rain_yesterday: !input tempest_rain_yesterday
+  var_rain_yesterday_cutoff: !input rain_yesterday_cutoff
+  var_soil_sensor: !input soil_moisture_sensor
+  var_soil_threshold: !input soil_moisture_threshold
+
+trigger:
+  - trigger: time
+    at: !input morning_time
+    id: morning_pulse
+  - trigger: time
+    at: !input evening_time
+    id: evening_pulse
+
+condition:
+  # 1. Evening toggle evaluation
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: morning_pulse
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: evening_pulse
+          - condition: template
+            value_template: "{{ var_enable_evening | default(true) }}"
+
+  # 2. Tempest Active Rain Check (skips if haptic sensor detects active rain)
+  - condition: template
+    alias: "Bypass if currently raining"
+    value_template: >-
+      {% set active = var_rain_active | default(none) %}
+      {% if active and is_state(active, 'on') %}
+        false
+      {% else %}
+        true
+      {% endif %}
+
+  # 3. Tempest Daily Accumulation Check (takes max of Local and Cloud to prevent packet-loss blindspots)
+  - condition: template
+    alias: "Bypass if daily rain exceeds cutoff (Local or Cloud)"
+    value_template: >-
+      {% set l_val = states(var_rain_local) | float(-1) if var_rain_local and states(var_rain_local) not in ['unknown', 'unavailable'] else -1 %}
+      {% set c_val = states(var_rain_cloud) | float(-1) if var_rain_cloud and states(var_rain_cloud) not in ['unknown', 'unavailable'] else -1 %}
+      {% set max_today = [l_val, c_val] | max %}
+      {% if max_today >= 0 %}
+        {{ max_today < (var_rain_today_cutoff | float(2.5)) }}
+      {% else %}
+        true
+      {% endif %}
+
+  # 4. Tempest Yesterday Heavy Rain Check (skips morning cycle if soil is thoroughly soaked from yesterday)
+  - condition: template
+    alias: "Bypass morning run if soaked yesterday"
+    value_template: >-
+      {% set y_sensor = var_rain_yesterday | default(none) %}
+      {% if trigger.id == 'morning_pulse' and y_sensor and states(y_sensor) not in ['unknown', 'unavailable'] %}
+        {{ states(y_sensor) | float(0) < (var_rain_yesterday_cutoff | float(10.0)) }}
+      {% else %}
+        true
+      {% endif %}
+
+  # 5. Soil Moisture Sensor Check
+  - condition: template
+    alias: "Bypass if soil moisture exceeds cutoff"
+    value_template: >-
+      {% set s_sensor = var_soil_sensor | default(none) %}
+      {% if s_sensor and states(s_sensor) not in ['unknown', 'unavailable'] %}
+        {{ states(s_sensor) | float(0) < (var_soil_threshold | float(100)) }}
+      {% else %}
+        true
+      {% endif %}
+
+action:
+  - alias: "Open valve"
+    action: switch.turn_on
+    target:
+      entity_id: !input valve_switch
+
+  - alias: "Irrigate for specified duration"
+    delay:
+      minutes: !input run_duration
+
+  - alias: "Close valve"
+    action: switch.turn_off
+    target:
+      entity_id: !input valve_switch

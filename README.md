@@ -1,0 +1,35 @@
+# Smart Drip Irrigation (`smart_drip`)
+
+Custom Home Assistant integration for smart micro-drip irrigation using the **Sonoff SWV-ZF2** smart water valve, **Tempest WeatherFlow** weather station, and **Gardena 15mm Micro-Drip** infrastructure.
+
+## Key Features
+
+- **Evapotranspiration Math Model**: Nightly calculation of FAO-56 Penman-Monteith reference evapotranspiration ($ET_0$) using live localized sensor telemetry from Tempest WeatherFlow (solar radiation, temperature, relative humidity, wind speed, barometric pressure).
+- **Dynamic Water Budget & Deficit Tracking**: Soil moisture deficit modeling with configurable bucket capacity, rain subtraction, and runtime derivation ($40\text{ L/h} \Rightarrow 8.33\text{ mm/h} \Rightarrow 432\text{ s/mm}$).
+- **Hardware Interlocks & Solenoid Protection**:
+  - Mutual exclusion preventing concurrent dual-channel actuation.
+  - Mandatory 10-second idle interlock between channel switches for latching capacitor recharge and pressure stabilization.
+  - Automatic software safety ceiling clamped at 45 minutes ($2700\text{ s}$).
+- **Transparent Decision State Machine**: Clear status reporting (`Ready`, `Running`, `Skipped: Active Rain`, `Skipped: Daily Rain Exceeded`, `Skipped: Yesterday Heavy Soak`, `Skipped: Low Temperature`, `Skipped: Zero Deficit`, `Skipped: Zone Disabled`) with human-readable diagnostic explanations.
+- **Config Flow & UI Options**: Full Home Assistant UI setup with entity selection, zone calibration, and options flow.
+- **Lovelace Ready**: Diagnostic gauges, status indicators, and manual execution triggers.
+
+## Architecture
+
+See [ARCHITECTURE_SPEC.md](file:///workspace/water-valve/ARCHITECTURE_SPEC.md) for full hardware stack specifications, hydraulic models, and entity mappings.
+
+## Development & Testing
+
+This project uses `mise` and `uv` for reproducible environments and task management.
+
+```bash
+# Linting & Formatting
+mise run lint
+mise run format
+
+# Run Test Suite
+mise run test
+
+# Type Checking
+mise run typecheck
+```

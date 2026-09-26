@@ -1,0 +1,52 @@
+# Direct Home Assistant Automation (paste into automations.yaml or UI code editor)
+# Replace switch.sonoff_water_valve_channel_1 and channel_2 with your entity IDs.
+
+alias: "Irrigation - Sequential Micro-Drip Dual Zone"
+description: "Sequential pulse irrigation for Sonoff SWV-ZF2 to respect hardware mutual exclusion."
+mode: single
+max_exceeded: silent
+
+trigger:
+  - trigger: time
+    at: "06:00:00"
+    id: morning_run
+  - trigger: time
+    at: "17:30:00"
+    id: afternoon_run
+
+action:
+  # === ZONE 1 (Channel 1) ===
+  - alias: "Turn on Zone 1"
+    action: switch.turn_on
+    target:
+      entity_id: switch.sonoff_water_valve_channel_1
+
+  - alias: "Run Zone 1 for 15 minutes"
+    delay:
+      minutes: 15
+
+  - alias: "Turn off Zone 1"
+    action: switch.turn_off
+    target:
+      entity_id: switch.sonoff_water_valve_channel_1
+
+  # === INTERLOCK SETTLING DELAY ===
+  # Critical: Allows pulse-latching solenoid capacitor to recharge and pressure to equalize
+  - alias: "Hardware interlock delay"
+    delay:
+      seconds: 5
+
+  # === ZONE 2 (Channel 2) ===
+  - alias: "Turn on Zone 2"
+    action: switch.turn_on
+    target:
+      entity_id: switch.sonoff_water_valve_channel_2
+
+  - alias: "Run Zone 2 for 15 minutes"
+    delay:
+      minutes: 15
+
+  - alias: "Turn off Zone 2"
+    action: switch.turn_off
+    target:
+      entity_id: switch.sonoff_water_valve_channel_2

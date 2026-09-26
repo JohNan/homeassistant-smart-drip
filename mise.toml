@@ -1,0 +1,20 @@
+[tools]
+python = "3.13"
+uv = "latest"
+ruff = "latest"
+
+[tasks.lint]
+description = "Check code formatting and linting rules"
+run = "uv run ruff check . && uv run ruff format --check ."
+
+[tasks.format]
+description = "Automatically format code and fix safe lint issues"
+run = "uv run ruff format . && uv run ruff check --fix ."
+
+[tasks.test]
+description = "Execute test suite with pytest and coverage"
+run = "uv run pytest --cov=custom_components.smart_drip -v"
+
+[tasks.typecheck]
+description = "Run static type checking with mypy"
+run = "uv run mypy custom_components/smart_drip"
