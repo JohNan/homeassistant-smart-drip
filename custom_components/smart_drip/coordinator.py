@@ -270,6 +270,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.zone_status[zone]["reason"] = reason
             self.zone_status[zone]["target_duration_seconds"] = duration
             self.zone_status[zone]["estimated_liters"] = liters
+            self.zone_status[zone]["last_rain_today_mm"] = rain_today
 
         self.async_set_updated_data(self._build_coordinator_data())
 
