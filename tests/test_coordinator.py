@@ -235,3 +235,42 @@ async def test_coordinator_reset_bucket(hass: HomeAssistant) -> None:
     await coordinator.async_reset_bucket("all")
     assert coordinator.zone_deficits[1] == 0.0
     assert coordinator.zone_deficits[2] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_manual_run_and_triggers(hass: HomeAssistant) -> None:
+    """Test manual zone run and scheduled trigger callbacks."""
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    # Test invalid zone raises ValueError
+    with pytest.raises(ValueError, match="Invalid zone 3"):
+        await coordinator.async_run_zone_manual(3, 100)
+
+    # Test valid manual run
+    calls_on = async_mock_service(hass, "switch", "turn_on")
+    calls_off = async_mock_service(hass, "switch", "turn_off")
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await coordinator.async_run_zone_manual(1, 300)
+        assert len(calls_on) == 1
+        assert len(calls_off) == 1
+
+    # Test scheduled trigger callbacks
+    with (
+        patch.object(coordinator, "async_calculate_daily_et0", new_callable=AsyncMock) as mock_et0,
+        patch.object(
+            coordinator, "async_execute_morning_schedule", new_callable=AsyncMock
+        ) as mock_sched,
+    ):
+        await coordinator._handle_nightly_et0_trigger(None)  # type: ignore[arg-type]
+        mock_et0.assert_awaited_once()
+
+        await coordinator._handle_morning_irrigation_trigger(None)  # type: ignore[arg-type]
+        mock_sched.assert_awaited_once()
+
+    # Test unload
+    await coordinator.async_unload()
+    assert len(coordinator._unsub_schedules) == 0

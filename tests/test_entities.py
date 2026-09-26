@@ -88,6 +88,15 @@ async def test_switch_toggling(hass: HomeAssistant, mock_entry: MockConfigEntry)
     )
     assert hass.states.get("switch.smart_drip_zone_1_auto_irrigation").state == "off"
 
+    # Turn on Zone 1 auto-irrigation switch
+    await hass.services.async_call(
+        "switch",
+        "turn_on",
+        {"entity_id": "switch.smart_drip_zone_1_auto_irrigation"},
+        blocking=True,
+    )
+    assert hass.states.get("switch.smart_drip_zone_1_auto_irrigation").state == "on"
+
 
 @pytest.mark.asyncio
 async def test_button_press_triggers_run_zone(
@@ -114,12 +123,12 @@ async def test_button_press_triggers_run_zone(
             {"entity_id": "button.smart_drip_run_zone_1_now"},
             blocking=True,
         )
-        mock_run.assert_awaited_once()
+        mock_run.assert_awaited_once_with(1, 600)
 
 
 @pytest.mark.asyncio
-async def test_custom_services(hass: HomeAssistant, mock_entry: MockConfigEntry) -> None:
-    """Test calculate_now and reset_bucket services."""
+async def test_custom_services_and_unload(hass: HomeAssistant, mock_entry: MockConfigEntry) -> None:
+    """Test calculate_now, reset_bucket, run_zone services and integration unload."""
     mock_entry.add_to_hass(hass)
 
     with (
@@ -143,3 +152,16 @@ async def test_custom_services(hass: HomeAssistant, mock_entry: MockConfigEntry)
     with patch.object(coordinator, "async_reset_bucket", new_callable=AsyncMock) as mock_reset:
         await hass.services.async_call(DOMAIN, "reset_bucket", {"zone": "1"}, blocking=True)
         mock_reset.assert_awaited_once_with(1)
+
+    with patch.object(
+        coordinator, "async_run_zone_manual", new_callable=AsyncMock
+    ) as mock_run_zone:
+        await hass.services.async_call(
+            DOMAIN, "run_zone", {"zone": 1, "duration": 120}, blocking=True
+        )
+        mock_run_zone.assert_awaited_once_with(1, 120)
+
+    # Test entry unload
+    assert await hass.config_entries.async_unload(mock_entry.entry_id)
+    await hass.async_block_till_done()
+    assert DOMAIN not in hass.data or mock_entry.entry_id not in hass.data[DOMAIN]
