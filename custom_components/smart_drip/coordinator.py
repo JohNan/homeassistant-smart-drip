@@ -20,12 +20,14 @@ from .calc import (
     calculate_precipitation_rate,
     calculate_runtime_seconds,
     evaluate_irrigation_decision,
+    integrate_delta_history,
     integrate_state_history,
     integrate_trapezoidal_rain,
 )
 from .const import (
     CONF_MAX_BUCKET,
     CONF_RAIN_IS_RATE,
+    CONF_RAIN_TOMORROW_CUTOFF,
     CONF_SAFETY_LIMIT,
     CONF_SENSOR_DEWPOINT,
     CONF_SENSOR_HUMIDITY,
@@ -35,6 +37,7 @@ from .const import (
     CONF_SENSOR_RAIN_TODAY,
     CONF_SENSOR_TEMP,
     CONF_SENSOR_WIND,
+    CONF_WEATHER_ENTITY,
     CONF_ZONE_1_AREA,
     CONF_ZONE_1_ENABLED,
     CONF_ZONE_1_FLOW_RATE,
@@ -45,6 +48,7 @@ from .const import (
     CONF_ZONE_2_SWITCH,
     DEFAULT_MAX_BUCKET_MM,
     DEFAULT_RAIN_IS_RATE,
+    DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
     DEFAULT_SAFETY_LIMIT_SECONDS,
     DEFAULT_SENSOR_DEWPOINT,
     DEFAULT_SENSOR_HUMIDITY,
@@ -54,6 +58,7 @@ from .const import (
     DEFAULT_SENSOR_RAIN_TODAY,
     DEFAULT_SENSOR_TEMP,
     DEFAULT_SENSOR_WIND,
+    DEFAULT_WEATHER_ENTITY,
     DEFAULT_ZONE_1_AREA_M2,
     DEFAULT_ZONE_1_FLOW_RATE_L_H,
     DEFAULT_ZONE_1_SWITCH,
@@ -98,6 +103,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.yesterday_rain: float = 0.0
         self.rain_today: float = 0.0
         self.rain_today_date: str = dt_util.now().date().isoformat()
+        self.rain_tomorrow: float = 0.0
         self._last_rain_rate: float | None = None
         self._last_rain_rate_timestamp: datetime | None = None
         self.zone_deficits: dict[int, float] = {1: 0.0, 2: 0.0}
@@ -170,15 +176,19 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_schedules.append(unsub_morning)
 
         # Initialize live rain rate tracker
-        rain_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
-        self._last_rain_rate = self._get_float_state(rain_entity, 0.0)
+        rain_is_rate = bool(self._get_conf(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE))
+        rain_today_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
+        rain_rate_entity = self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
+        initial_rate_entity = rain_rate_entity if rain_is_rate else rain_today_entity
+        self._last_rain_rate = self._get_float_state(initial_rate_entity, 0.0)
         self._last_rain_rate_timestamp = dt_util.now()
 
-        # Dynamic state change tracking for weather telemetry
+        weather_entity = self._get_conf(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
         weather_entities = [
-            self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY),
-            self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY),
+            rain_today_entity,
+            rain_rate_entity,
             self._get_conf(CONF_SENSOR_TEMP, DEFAULT_SENSOR_TEMP),
+            weather_entity,
         ]
         valid_weather_entities = [e for e in weather_entities if isinstance(e, str) and e]
         if valid_weather_entities:
@@ -189,7 +199,8 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._unsub_schedules.append(unsub_weather)
 
-        # Initial zone status evaluation
+        # Update initial forecast and zone status evaluation
+        await self.async_update_forecast()
         await self.async_evaluate_zones()
 
     async def _handle_midnight_rollover(self, _now: datetime) -> None:
@@ -199,6 +210,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.rain_today = 0.0
         self.rain_today_date = dt_util.now().date().isoformat()
         self._last_rain_rate_timestamp = dt_util.now()
+        await self.async_update_forecast()
         await self.async_evaluate_zones()
         self.async_set_updated_data(self._build_coordinator_data())
         await self.async_save_state()
@@ -206,20 +218,42 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _handle_weather_state_change(self, event: Event[EventStateChangedData]) -> None:
         """Handle dynamic state change in weather telemetry sensors."""
         entity_id = event.data.get("entity_id")
-        rain_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
+        rain_today_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
+        rain_rate_entity = self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
+        weather_entity = self._get_conf(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
         rain_is_rate = bool(self._get_conf(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE))
 
-        if entity_id == rain_entity and rain_is_rate:
-            curr_rate = self._get_float_state(rain_entity, 0.0)
-            now = dt_util.now()
-            if self._last_rain_rate is not None and self._last_rain_rate_timestamp is not None:
-                dt_sec = (now - self._last_rain_rate_timestamp).total_seconds()
-                if 0 < dt_sec <= 3600:
-                    d_rain = integrate_trapezoidal_rain(self._last_rain_rate, curr_rate, dt_sec)
-                    if d_rain > 0.0:
-                        self.rain_today = round(self.rain_today + d_rain, 2)
-            self._last_rain_rate = curr_rate
-            self._last_rain_rate_timestamp = now
+        if entity_id == weather_entity:
+            await self.async_update_forecast()
+
+        if rain_is_rate:
+            target_rate_entity = (
+                rain_rate_entity
+                if entity_id == rain_rate_entity
+                else (rain_today_entity if entity_id == rain_today_entity else None)
+            )
+            if target_rate_entity:
+                curr_rate = self._get_float_state(target_rate_entity, 0.0)
+                now = dt_util.now()
+                if self._last_rain_rate is not None and self._last_rain_rate_timestamp is not None:
+                    dt_sec = (now - self._last_rain_rate_timestamp).total_seconds()
+                    if 0 < dt_sec <= 3600:
+                        d_rain = integrate_trapezoidal_rain(self._last_rain_rate, curr_rate, dt_sec)
+                        if d_rain > 0.0:
+                            self.rain_today = round(self.rain_today + d_rain, 2)
+                self._last_rain_rate = curr_rate
+                self._last_rain_rate_timestamp = now
+        elif entity_id == rain_today_entity:
+            curr_val = self._get_float_state(rain_today_entity, 0.0)
+            st = self.hass.states.get(rain_today_entity)
+            state_class = st.attributes.get("state_class") if st else None
+            is_interval = state_class == "total" and "last_reset" in (st.attributes if st else {})
+            if is_interval:
+                if curr_val > 0.0:
+                    self.rain_today = round(self.rain_today + curr_val, 2)
+            else:
+                if curr_val >= self.rain_today:
+                    self.rain_today = curr_val
 
         _LOGGER.debug("Weather telemetry changed for %s; re-evaluating zones.", entity_id)
         await self.async_evaluate_zones()
@@ -243,6 +277,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Restoring persisted Smart Drip state from storage.")
             self.last_et0 = float(stored.get("last_et0", 0.0))
             self.yesterday_rain = float(stored.get("yesterday_rain", 0.0))
+            self.rain_tomorrow = float(stored.get("rain_tomorrow", 0.0))
             stored_date = stored.get("rain_today_date")
             today_str = dt_util.now().date().isoformat()
             yesterday_str = (dt_util.now().date() - timedelta(days=1)).isoformat()
@@ -280,8 +315,12 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Recorder integration not active; skipping DB backfill.")
             return
 
-        rain_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
         rain_is_rate = bool(self._get_conf(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE))
+        today_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
+        intensity_entity = self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
+        rain_entities = (
+            [intensity_entity, today_entity] if rain_is_rate else [today_entity, intensity_entity]
+        )
         now = dt_util.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         yesterday_start = today_start - timedelta(days=1)
@@ -293,7 +332,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass,
                 start_time=yesterday_start,
                 end_time=now,
-                entity_ids=[rain_entity],
+                entity_ids=rain_entities,
                 significant_changes_only=False,
             )
 
@@ -302,8 +341,12 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             recorder_instance = get_instance(self.hass)
             states_dict = await recorder_instance.async_add_executor_job(_query)
-            if rain_entity in states_dict and states_dict[rain_entity]:
-                all_states = states_dict[rain_entity]
+            target_entity = next(
+                (e for e in rain_entities if e in states_dict and states_dict[e]), None
+            )
+            if target_entity:
+                rain_entity = target_entity
+                all_states = states_dict[target_entity]
                 if rain_is_rate:
                     yesterday_pairs: list[tuple[float, datetime]] = []
                     today_pairs: list[tuple[float, datetime]] = []
@@ -333,6 +376,8 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             self.rain_today,
                         )
                 else:
+                    yesterday_vals: list[float] = []
+                    today_vals: list[float] = []
                     for st in all_states:
                         val = getattr(st, "state", None)
                         ts = getattr(st, "last_updated", None)
@@ -340,9 +385,25 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             with suppress(ValueError, TypeError):
                                 num = float(str(val).replace(",", ".").strip())
                                 if ts is not None and ts < today_start:
-                                    self.yesterday_rain = num
+                                    yesterday_vals.append(num)
                                 else:
-                                    self.rain_today = num
+                                    today_vals.append(num)
+
+                    st_live = self.hass.states.get(rain_entity)
+                    state_class = st_live.attributes.get("state_class") if st_live else None
+                    is_interval = state_class == "total" and "last_reset" in (
+                        st_live.attributes if st_live else {}
+                    )
+                    if is_interval:
+                        self.yesterday_rain = integrate_delta_history(
+                            [(v, now) for v in yesterday_vals]
+                        )
+                        self.rain_today = integrate_delta_history([(v, now) for v in today_vals])
+                    else:
+                        if yesterday_vals:
+                            self.yesterday_rain = round(yesterday_vals[-1], 2)
+                        if today_vals:
+                            self.rain_today = round(today_vals[-1], 2)
         except Exception as err:
             _LOGGER.warning("Could not backfill historical rain from recorder: %s", err)
 
@@ -353,6 +414,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "yesterday_rain": self.yesterday_rain,
             "rain_today": self.rain_today,
             "rain_today_date": self.rain_today_date,
+            "rain_tomorrow": self.rain_tomorrow,
             "zone_deficits": {str(k): v for k, v in self.zone_deficits.items()},
             "zone_status": {str(k): v for k, v in self.zone_status.items()},
         }
@@ -377,6 +439,62 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         _LOGGER.info("Executing scheduled morning irrigation sequence at 06:00.")
         await self.async_execute_morning_schedule()
 
+    async def async_update_forecast(self) -> float:
+        """Fetch tomorrow's forecasted precipitation from weather service."""
+        weather_entity = self._get_conf(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
+        if not weather_entity:
+            return self.rain_tomorrow
+        rain_tomorrow: float | None = None
+        try:
+            response = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"entity_id": weather_entity, "type": "daily"},
+                blocking=True,
+                return_response=True,
+            )
+            if isinstance(response, dict) and weather_entity in response:
+                entity_fc = response[weather_entity]
+                if isinstance(entity_fc, dict) and "forecast" in entity_fc:
+                    raw_forecasts = entity_fc["forecast"]
+                    if isinstance(raw_forecasts, list):
+                        now = dt_util.now()
+                        tomorrow_date = (now + timedelta(days=1)).date()
+                        for fc in raw_forecasts:
+                            if isinstance(fc, dict):
+                                dt_val = fc.get("datetime")
+                                if isinstance(dt_val, str):
+                                    fc_date = dt_util.parse_datetime(dt_val)
+                                    if fc_date and fc_date.date() == tomorrow_date:
+                                        precip = fc.get("precipitation")
+                                        if isinstance(precip, (int, float, str)):
+                                            with suppress(ValueError, TypeError):
+                                                rain_tomorrow = float(precip)
+                                        break
+                        if rain_tomorrow is None and len(raw_forecasts) >= 2:
+                            fc1 = raw_forecasts[1]
+                            if isinstance(fc1, dict):
+                                precip = fc1.get("precipitation")
+                                if isinstance(precip, (int, float, str)):
+                                    with suppress(ValueError, TypeError):
+                                        rain_tomorrow = float(precip)
+        except Exception as err:
+            _LOGGER.debug("Could not fetch daily weather forecast from %s: %s", weather_entity, err)
+            st = self.hass.states.get(weather_entity)
+            if st and "forecast" in st.attributes:
+                attr_forecasts = st.attributes["forecast"]
+                if isinstance(attr_forecasts, list) and len(attr_forecasts) >= 2:
+                    fc1 = attr_forecasts[1]
+                    if isinstance(fc1, dict):
+                        precip = fc1.get("precipitation")
+                        if isinstance(precip, (int, float, str)):
+                            with suppress(ValueError, TypeError):
+                                rain_tomorrow = float(precip)
+
+        if rain_tomorrow is not None:
+            self.rain_tomorrow = round(rain_tomorrow, 2)
+        return self.rain_tomorrow
+
     async def async_calculate_daily_et0(self) -> float:
         """Calculate daily ET0 using sensor telemetry and update water deficits."""
         temp_c = self._get_float_state(self._get_conf(CONF_SENSOR_TEMP, DEFAULT_SENSOR_TEMP), 18.0)
@@ -393,9 +511,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         pressure = self._get_float_state(
             self._get_conf(CONF_SENSOR_PRESSURE, DEFAULT_SENSOR_PRESSURE), 1013.25
         )
-        rain_is_rate = bool(self._get_conf(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE))
-        rain_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
-        rain_today = self.rain_today if rain_is_rate else self._get_float_state(rain_entity, 0.0)
+        rain_today = self.rain_today
 
         et0 = calculate_et0(
             temp_c=temp_c,
@@ -406,7 +522,6 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             pressure_hpa=pressure,
         )
         self.last_et0 = et0
-        self.yesterday_rain = rain_today
 
         max_bucket = float(self._get_conf(CONF_MAX_BUCKET, DEFAULT_MAX_BUCKET_MM))
 
@@ -430,6 +545,8 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 new_deficit,
             )
 
+        await self.async_update_forecast()
+
         await self.async_evaluate_zones()
         self.async_set_updated_data(self._build_coordinator_data())
         await self.async_save_state()
@@ -441,18 +558,14 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rain_rate = self._get_float_state(
             self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY), 0.0
         )
-        rain_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
         rain_is_rate = bool(self._get_conf(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE))
-
-        if rain_is_rate:
-            curr_rate = self._get_float_state(rain_entity, 0.0)
-            if curr_rate > rain_rate:
-                rain_rate = curr_rate
-            rain_today = self.rain_today
-        else:
-            rain_today = self._get_float_state(rain_entity, self.rain_today)
-            self.rain_today = rain_today
-
+        rain_today_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
+        if not rain_is_rate:
+            self.rain_today = self._get_float_state(rain_today_entity, self.rain_today)
+        rain_today = self.rain_today
+        rain_tomorrow_cutoff = float(
+            self._get_conf(CONF_RAIN_TOMORROW_CUTOFF, DEFAULT_RAIN_TOMORROW_CUTOFF_MM)
+        )
         safety_limit = int(self._get_conf(CONF_SAFETY_LIMIT, DEFAULT_SAFETY_LIMIT_SECONDS))
 
         zone_configs = {
@@ -479,6 +592,8 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 rain_today_mm=rain_today,
                 rain_yesterday_mm=self.yesterday_rain,
                 deficit_mm=deficit,
+                rain_tomorrow_mm=self.rain_tomorrow,
+                rain_tomorrow_cutoff_mm=rain_tomorrow_cutoff,
             )
 
             duration = 0
@@ -498,11 +613,13 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.zone_status[zone]["target_duration_seconds"] = duration
             self.zone_status[zone]["estimated_liters"] = liters
             self.zone_status[zone]["last_rain_today_mm"] = rain_today
+            self.zone_status[zone]["rain_tomorrow_mm"] = self.rain_tomorrow
 
         self.async_set_updated_data(self._build_coordinator_data())
 
     async def async_execute_morning_schedule(self) -> None:
         """Evaluate zones and sequentially run active valves at 06:00."""
+        await self.async_update_forecast()
         await self.async_evaluate_zones()
 
         zone_switches = {
@@ -640,6 +757,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_et0": self.last_et0,
             "yesterday_rain": self.yesterday_rain,
             "rain_today": self.rain_today,
+            "rain_tomorrow": self.rain_tomorrow,
             "zone_deficits": dict(self.zone_deficits),
             "zone_status": {z: dict(self.zone_status[z]) for z in (1, 2)},
             "interlock_active": self.interlock.is_active,

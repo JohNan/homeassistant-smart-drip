@@ -2,7 +2,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -42,6 +42,7 @@ from custom_components.smart_drip.const import (
     STATUS_SKIPPED_ACTIVE_RAIN,
     STATUS_SKIPPED_DAILY_RAIN_EXCEEDED,
     STATUS_SKIPPED_LOW_TEMP,
+    STATUS_SKIPPED_RAIN_TOMORROW,
     STATUS_SKIPPED_ZERO_DEFICIT,
     STATUS_SKIPPED_ZONE_DISABLED,
 )
@@ -360,3 +361,103 @@ async def test_coordinator_midnight_rollover(hass: HomeAssistant) -> None:
         assert coordinator.yesterday_rain == 3.65
         assert coordinator.rain_today == 0.0
         mock_save.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_forecast_service_update(hass: HomeAssistant) -> None:
+    """Test retrieving tomorrow's precipitation forecast via weather.get_forecasts service."""
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    now = dt_util.now()
+    tomorrow_str = (now + timedelta(days=1)).isoformat()
+
+    mock_response = {
+        "weather.smhi_home": {
+            "forecast": [
+                {"datetime": now.isoformat(), "precipitation": 0.0},
+                {"datetime": tomorrow_str, "precipitation": 7.5},
+            ]
+        }
+    }
+
+    async def mock_call_service(call):
+        return mock_response
+
+    hass.services.async_register(
+        "weather",
+        "get_forecasts",
+        mock_call_service,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    rain = await coordinator.async_update_forecast()
+    assert rain == 7.5
+    assert coordinator.rain_tomorrow == 7.5
+
+
+@pytest.mark.asyncio
+async def test_coordinator_forecast_fallback_attribute(hass: HomeAssistant) -> None:
+    """Test falling back to weather entity forecast state attribute if service fails."""
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    now = dt_util.now()
+
+    hass.states.async_set(
+        "weather.smhi_home",
+        "partlycloudy",
+        {
+            "forecast": [
+                {"datetime": now.isoformat(), "precipitation": 0.0},
+                {"datetime": (now + timedelta(days=1)).isoformat(), "precipitation": 4.2},
+            ]
+        },
+    )
+
+    # Without registering weather.get_forecasts, the service call fails and falls back to state attribute
+    rain = await coordinator.async_update_forecast()
+    assert rain == 4.2
+    assert coordinator.rain_tomorrow == 4.2
+
+
+@pytest.mark.asyncio
+async def test_coordinator_et0_does_not_overwrite_yesterday_rain(hass: HomeAssistant) -> None:
+    """Verify that daily ET0 calculation at 23:00 does NOT overwrite yesterday_rain prematurely."""
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    coordinator.yesterday_rain = 5.0
+    coordinator.rain_today = 2.0
+
+    setup_mock_weather_sensors(hass, temp=20.0, rain_today=2.0)
+
+    with (
+        patch.object(coordinator, "async_save_state", new_callable=AsyncMock),
+        patch.object(coordinator, "async_update_forecast", new_callable=AsyncMock),
+    ):
+        await coordinator.async_calculate_daily_et0()
+
+    # yesterday_rain must remain unchanged at 5.0 (only 00:00 midnight rolls it over)
+    assert coordinator.yesterday_rain == 5.0
+    assert coordinator.rain_today == 2.0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_skip_tomorrow_rain(hass: HomeAssistant) -> None:
+    """Test skipping irrigation when rain forecast tomorrow exceeds cutoff."""
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    coordinator.zone_deficits[1] = 4.0
+    coordinator.rain_tomorrow = 8.0
+
+    setup_mock_weather_sensors(hass, temp=18.0, rain_today=0.0, rain_intensity=0.0)
+    await coordinator.async_evaluate_zones()
+
+    assert coordinator.zone_status[1]["state"] == STATUS_SKIPPED_RAIN_TOMORROW
+    assert "Tomorrow's rain forecast" in coordinator.zone_status[1]["reason"]

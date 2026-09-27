@@ -17,6 +17,7 @@ from homeassistant.helpers.storage import Store
 from .const import (
     CONF_MAX_BUCKET,
     CONF_RAIN_IS_RATE,
+    CONF_RAIN_TOMORROW_CUTOFF,
     CONF_RESET_STORAGE,
     CONF_SAFETY_LIMIT,
     CONF_SENSOR_DEWPOINT,
@@ -27,6 +28,7 @@ from .const import (
     CONF_SENSOR_RAIN_TODAY,
     CONF_SENSOR_TEMP,
     CONF_SENSOR_WIND,
+    CONF_WEATHER_ENTITY,
     CONF_ZONE_1_AREA,
     CONF_ZONE_1_ENABLED,
     CONF_ZONE_1_FLOW_RATE,
@@ -37,6 +39,7 @@ from .const import (
     CONF_ZONE_2_SWITCH,
     DEFAULT_MAX_BUCKET_MM,
     DEFAULT_RAIN_IS_RATE,
+    DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
     DEFAULT_SAFETY_LIMIT_SECONDS,
     DEFAULT_SENSOR_DEWPOINT,
     DEFAULT_SENSOR_HUMIDITY,
@@ -46,6 +49,7 @@ from .const import (
     DEFAULT_SENSOR_RAIN_TODAY,
     DEFAULT_SENSOR_TEMP,
     DEFAULT_SENSOR_WIND,
+    DEFAULT_WEATHER_ENTITY,
     DEFAULT_ZONE_1_AREA_M2,
     DEFAULT_ZONE_1_FLOW_RATE_L_H,
     DEFAULT_ZONE_1_SWITCH,
@@ -94,6 +98,10 @@ class SmartDripConfigFlow(ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_SENSOR_RAIN_TODAY, default=DEFAULT_SENSOR_RAIN_TODAY): str,
             vol.Required(CONF_SENSOR_RAIN_INTENSITY, default=DEFAULT_SENSOR_RAIN_INTENSITY): str,
             vol.Required(CONF_RAIN_IS_RATE, default=DEFAULT_RAIN_IS_RATE): bool,
+            vol.Optional(CONF_WEATHER_ENTITY, default=DEFAULT_WEATHER_ENTITY): str,
+            vol.Optional(
+                CONF_RAIN_TOMORROW_CUTOFF, default=DEFAULT_RAIN_TOMORROW_CUTOFF_MM
+            ): vol.Coerce(float),
             vol.Required(CONF_ZONE_1_SWITCH, default=DEFAULT_ZONE_1_SWITCH): str,
             vol.Required(CONF_ZONE_1_AREA, default=DEFAULT_ZONE_1_AREA_M2): vol.Coerce(float),
             vol.Required(CONF_ZONE_1_FLOW_RATE, default=DEFAULT_ZONE_1_FLOW_RATE_L_H): vol.Coerce(
@@ -164,6 +172,16 @@ class SmartDripOptionsFlowHandler(OptionsFlowWithConfigEntry):
                     CONF_RAIN_IS_RATE,
                     default=bool(self._get_val(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE)),
                 ): bool,
+                vol.Optional(
+                    CONF_WEATHER_ENTITY,
+                    default=str(self._get_val(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)),
+                ): str,
+                vol.Optional(
+                    CONF_RAIN_TOMORROW_CUTOFF,
+                    default=float(
+                        self._get_val(CONF_RAIN_TOMORROW_CUTOFF, DEFAULT_RAIN_TOMORROW_CUTOFF_MM)
+                    ),
+                ): vol.Coerce(float),
                 vol.Required(
                     CONF_ZONE_1_AREA,
                     default=float(self._get_val(CONF_ZONE_1_AREA, DEFAULT_ZONE_1_AREA_M2)),
