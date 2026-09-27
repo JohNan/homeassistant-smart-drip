@@ -80,10 +80,10 @@
         },
         "data_description": {
           "sensor_rain_today": "Precipitation accumulation or interval delta sensor.",
-          "sensor_rain_intensity": "Precipitation rate intensity sensor (mm/h).",
+          "sensor_rain_intensity": "Rain rate intensity sensor (mm/h).",
           "rain_is_rate": "Enable if rainfall rate integration is required instead of cumulative meter.",
           "weather_entity": "Weather forecast provider used to predict tomorrow's rain.",
-          "rain_tomorrow_cutoff": "Precipitation cutoff above which automated irrigation is skipped.",
+          "rain_tomorrow_cutoff": "Skip irrigation if tomorrow's forecasted rain exceeds this threshold.",
           "zone_1_area": "Total irrigated garden bed area for Zone 1 in square meters.",
           "zone_1_flow_rate": "Total emitter discharge rate for Zone 1 in liters per hour.",
           "zone_1_enabled": "Allow automated morning irrigation dispatch for Zone 1.",

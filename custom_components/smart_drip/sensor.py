@@ -180,6 +180,7 @@ class SmartDripZoneDurationSensor(SmartDripBaseEntity, SensorEntity):
 class SmartDripYesterdayRainSensor(SmartDripBaseEntity, SensorEntity):
     """Sensor reporting yesterday's rainfall accumulation."""
 
+    _attr_translation_key = "yesterday_rain"
     _attr_native_unit_of_measurement = "mm"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.PRECIPITATION
