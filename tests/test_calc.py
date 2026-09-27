@@ -13,6 +13,7 @@ from custom_components.smart_drip.calc import (
     calculate_saturation_vapor_pressure,
     calculate_slope_vapor_pressure,
     evaluate_irrigation_decision,
+    integrate_delta_history,
     integrate_state_history,
     integrate_trapezoidal_rain,
 )
@@ -20,6 +21,7 @@ from custom_components.smart_drip.const import (
     DEFAULT_MAX_BUCKET_MM,
     DEFAULT_MIN_DEFICIT_TRIGGER_MM,
     DEFAULT_RAIN_TODAY_CUTOFF_MM,
+    DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
     DEFAULT_SAFETY_LIMIT_SECONDS,
     DEFAULT_TEMP_CUTOFF_C,
     DEFAULT_YESTERDAY_RAIN_CUTOFF_MM,
@@ -27,6 +29,7 @@ from custom_components.smart_drip.const import (
     STATUS_SKIPPED_ACTIVE_RAIN,
     STATUS_SKIPPED_DAILY_RAIN_EXCEEDED,
     STATUS_SKIPPED_LOW_TEMP,
+    STATUS_SKIPPED_RAIN_TOMORROW,
     STATUS_SKIPPED_YESTERDAY_HEAVY_SOAK,
     STATUS_SKIPPED_ZERO_DEFICIT,
     STATUS_SKIPPED_ZONE_DISABLED,
@@ -280,3 +283,46 @@ def test_integrate_state_history() -> None:
     t3 = datetime(2026, 9, 26, 16, 0, 0, tzinfo=UTC)
     history_gap = [(2.0, t0), (4.0, t3)]
     assert integrate_state_history(history_gap, max_gap_seconds=3600.0) == 0.0
+
+
+def test_integrate_delta_history() -> None:
+    """Test summing positive delta precipitation observations from interval sensors."""
+    now = datetime(2026, 9, 27, 12, 0, 0, tzinfo=UTC)
+    states = [
+        (0.0088, now),
+        (0.0068, now),
+        (0.0, now),
+        (0.0156, now),
+        (-1.0, now),  # Negative reading ignored
+        (0.0, now),
+    ]
+    assert integrate_delta_history(states) == 0.03
+
+
+def test_evaluate_irrigation_decision_rain_tomorrow_skip() -> None:
+    """Test skipping irrigation when tomorrow's forecasted rainfall exceeds cutoff."""
+    status, reason = evaluate_irrigation_decision(
+        zone_enabled=True,
+        temp_c=18.0,
+        current_rain_rate_mm_h=0.0,
+        rain_today_mm=0.0,
+        rain_yesterday_mm=0.0,
+        deficit_mm=5.0,
+        rain_tomorrow_mm=6.2,
+        rain_tomorrow_cutoff_mm=DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
+    )
+    assert status == STATUS_SKIPPED_RAIN_TOMORROW
+    assert "Tomorrow's rain forecast (6.2 mm) exceeds cutoff threshold (5.0 mm)" in reason
+
+    # When forecast is below cutoff, decision is READY
+    status_ok, _ = evaluate_irrigation_decision(
+        zone_enabled=True,
+        temp_c=18.0,
+        current_rain_rate_mm_h=0.0,
+        rain_today_mm=0.0,
+        rain_yesterday_mm=0.0,
+        deficit_mm=5.0,
+        rain_tomorrow_mm=3.0,
+        rain_tomorrow_cutoff_mm=DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
+    )
+    assert status_ok == STATUS_READY

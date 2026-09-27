@@ -9,6 +9,7 @@ from .const import (
     DEFAULT_MAX_BUCKET_MM,
     DEFAULT_MIN_DEFICIT_TRIGGER_MM,
     DEFAULT_RAIN_TODAY_CUTOFF_MM,
+    DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
     DEFAULT_SAFETY_LIMIT_SECONDS,
     DEFAULT_TEMP_CUTOFF_C,
     DEFAULT_YESTERDAY_RAIN_CUTOFF_MM,
@@ -16,6 +17,7 @@ from .const import (
     STATUS_SKIPPED_ACTIVE_RAIN,
     STATUS_SKIPPED_DAILY_RAIN_EXCEEDED,
     STATUS_SKIPPED_LOW_TEMP,
+    STATUS_SKIPPED_RAIN_TOMORROW,
     STATUS_SKIPPED_YESTERDAY_HEAVY_SOAK,
     STATUS_SKIPPED_ZERO_DEFICIT,
     STATUS_SKIPPED_ZONE_DISABLED,
@@ -149,6 +151,8 @@ def evaluate_irrigation_decision(
     rain_today_cutoff_mm: float = DEFAULT_RAIN_TODAY_CUTOFF_MM,
     yesterday_rain_cutoff_mm: float = DEFAULT_YESTERDAY_RAIN_CUTOFF_MM,
     min_deficit_trigger_mm: float = DEFAULT_MIN_DEFICIT_TRIGGER_MM,
+    rain_tomorrow_mm: float = 0.0,
+    rain_tomorrow_cutoff_mm: float = DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
 ) -> tuple[str, str]:
     """Evaluate skip criteria in prioritized order and return (Status, Reason)."""
     if not zone_enabled:
@@ -176,6 +180,12 @@ def evaluate_irrigation_decision(
         return (
             STATUS_SKIPPED_YESTERDAY_HEAVY_SOAK,
             f"Yesterday's soak ({rain_yesterday_mm:.1f} mm) exceeds threshold ({yesterday_rain_cutoff_mm:.1f} mm).",
+        )
+
+    if rain_tomorrow_cutoff_mm > 0.0 and rain_tomorrow_mm >= rain_tomorrow_cutoff_mm:
+        return (
+            STATUS_SKIPPED_RAIN_TOMORROW,
+            f"Tomorrow's rain forecast ({rain_tomorrow_mm:.1f} mm) exceeds cutoff threshold ({rain_tomorrow_cutoff_mm:.1f} mm).",
         )
 
     if deficit_mm < min_deficit_trigger_mm:
@@ -226,3 +236,8 @@ def integrate_state_history(
             total_rain += integrate_trapezoidal_rain(r1, r2, dt)
 
     return round(total_rain, 2)
+
+
+def integrate_delta_history(states: list[tuple[float, datetime]]) -> float:
+    """Sum interval delta precipitation amounts (mm) from sensors reporting per-period totals."""
+    return round(sum(val for val, _ in states if val > 0.0), 2)

@@ -14,6 +14,8 @@
           "sensor_rain_today": "Daily Precipitation Sensor",
           "sensor_rain_intensity": "Rain Intensity Sensor",
           "rain_is_rate": "Derive Daily Rain via Real-Time Rate Integration",
+          "weather_entity": "Weather Forecast Entity",
+          "rain_tomorrow_cutoff": "Tomorrow Rain Cutoff Threshold (mm)",
           "reset_storage": "Erase previous irrigation history and start fresh",
           "zone_1_switch": "Zone 1 Valve Switch Entity",
           "zone_2_switch": "Zone 2 Valve Switch Entity",
@@ -41,6 +43,8 @@
           "sensor_rain_today": "Daily Precipitation Sensor",
           "sensor_rain_intensity": "Rain Intensity Sensor",
           "rain_is_rate": "Derive Daily Rain via Real-Time Rate Integration",
+          "weather_entity": "Weather Forecast Entity",
+          "rain_tomorrow_cutoff": "Tomorrow Rain Cutoff Threshold (mm)",
           "zone_1_area": "Zone 1 Irrigated Area (m²)",
           "zone_1_flow_rate": "Zone 1 Flow Rate (L/h)",
           "zone_1_enabled": "Enable Zone 1 Auto-Irrigation",
@@ -60,6 +64,12 @@
       },
       "rain_today": {
         "name": "Rain Today"
+      },
+      "yesterday_rain": {
+        "name": "Yesterday Rain"
+      },
+      "rain_tomorrow": {
+        "name": "Rain Tomorrow"
       },
       "zone_status": {
         "name": "Zone Status"

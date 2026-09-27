@@ -32,6 +32,7 @@ async def async_setup_entry(
         SmartDripDailyET0Sensor(coordinator, entry),
         SmartDripRainTodaySensor(coordinator, entry),
         SmartDripYesterdayRainSensor(coordinator, entry),
+        SmartDripRainTomorrowSensor(coordinator, entry),
     ]
 
     for zone in (1, 2):
@@ -193,3 +194,23 @@ class SmartDripYesterdayRainSensor(SmartDripBaseEntity, SensorEntity):
     def native_value(self) -> float:
         """Return yesterday's rainfall in mm."""
         return float(self.coordinator.yesterday_rain)
+
+
+class SmartDripRainTomorrowSensor(SmartDripBaseEntity, SensorEntity):
+    """Sensor reporting tomorrow's forecasted rainfall."""
+
+    _attr_translation_key = "rain_tomorrow"
+    _attr_native_unit_of_measurement = "mm"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_device_class = SensorDeviceClass.PRECIPITATION
+
+    def __init__(self, coordinator: SmartDripCoordinator, entry: ConfigEntry) -> None:
+        """Initialize tomorrow rain sensor."""
+        super().__init__(coordinator, entry, zone=None)
+        self._attr_unique_id = f"{entry.entry_id}_rain_tomorrow"
+        self._attr_name = "Rain Tomorrow"
+
+    @property
+    def native_value(self) -> float:
+        """Return tomorrow's forecasted rainfall in mm."""
+        return float(self.coordinator.rain_tomorrow)
