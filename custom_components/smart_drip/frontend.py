@@ -18,7 +18,10 @@ URL_BASE: Final = "/smart_drip"
 CARD_FILENAME: Final = "smart-drip-card.js"
 CARD_URL: Final = f"{URL_BASE}/{CARD_FILENAME}"
 DATA_FRONTEND_REGISTERED: Final = f"{DOMAIN}_frontend_registered"
-VERSION: Final = "1.0.0"
+
+# Short git commit hash for cache busting (manually bumped on each PR modifying the card)
+GIT_HASH: Final = "88b1414"
+VERSION: Final = GIT_HASH
 
 
 async def async_register_frontend(hass: HomeAssistant) -> None:
@@ -33,23 +36,32 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
         _LOGGER.warning("Smart Drip Lovelace card file not found at %s", card_path)
         return
 
-    # 1. Register static path with Home Assistant HTTP
+    # 1. Register static paths with Home Assistant HTTP
     if hasattr(hass, "http") and hass.http:
         try:
-            await hass.http.async_register_static_paths(
-                [
-                    StaticPathConfig(
-                        url_path=CARD_URL,
-                        path=str(card_path),
-                        cache_headers=True,
+            static_paths = [
+                StaticPathConfig(
+                    url_path=CARD_URL,
+                    path=str(card_path),
+                    cache_headers=True,
+                )
+            ]
+            for asset_name in ("logo.png", "logo.svg", "icon.png", "icon.svg"):
+                asset_path = card_dir / asset_name
+                if asset_path.exists():
+                    static_paths.append(
+                        StaticPathConfig(
+                            url_path=f"{URL_BASE}/{asset_name}",
+                            path=str(asset_path),
+                            cache_headers=True,
+                        )
                     )
-                ]
-            )
+            await hass.http.async_register_static_paths(static_paths)
         except Exception as err:
-            _LOGGER.error("Failed to register static path for Smart Drip card: %s", err)
+            _LOGGER.error("Failed to register static paths for Smart Drip frontend: %s", err)
 
     # 2. Add extra JS module URL to Home Assistant frontend
-    versioned_url = f"{CARD_URL}?v={VERSION}"
+    versioned_url = f"{CARD_URL}?v={GIT_HASH}"
     try:
         if DATA_EXTRA_MODULE_URL not in hass.data:
             hass.data[DATA_EXTRA_MODULE_URL] = UrlManager(lambda _action, _url: None, [])
@@ -80,10 +92,15 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, resource_url: s
                 await resources.async_load()
                 resources.loaded = True
 
-            existing = any(
-                item.get("url", "").startswith(CARD_URL) for item in resources.async_items()
+            existing_item = next(
+                (
+                    item
+                    for item in resources.async_items()
+                    if item.get("url", "").startswith(CARD_URL)
+                ),
+                None,
             )
-            if not existing:
+            if existing_item is None:
                 await resources.async_create_item(
                     {
                         "res_type": "module",
@@ -91,5 +108,20 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, resource_url: s
                     }
                 )
                 _LOGGER.info("Auto-registered Smart Drip Lovelace resource: %s", resource_url)
+            elif existing_item.get("url") != resource_url:
+                item_id = existing_item.get("id")
+                if item_id:
+                    await resources.async_update_item(
+                        item_id,
+                        {
+                            "res_type": "module",
+                            "url": resource_url,
+                        },
+                    )
+                    _LOGGER.info(
+                        "Updated Smart Drip Lovelace resource cache buster from %s to %s",
+                        existing_item.get("url"),
+                        resource_url,
+                    )
     except Exception as err:
         _LOGGER.debug("Could not register Lovelace storage resource (non-critical): %s", err)

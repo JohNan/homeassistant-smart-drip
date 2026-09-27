@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="Smart Drip Logo" width="560">
+</p>
+
 # Smart Drip Irrigation (`smart_drip`)
 
 Custom Home Assistant integration for smart micro-drip irrigation using the **Sonoff SWV-ZF2** smart water valve, **Tempest WeatherFlow** weather station, and **Gardena 15mm Micro-Drip** infrastructure.
