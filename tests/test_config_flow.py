@@ -4,6 +4,7 @@ import pytest
 from homeassistant import data_entry_flow
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.translation import async_get_translations
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.smart_drip.const import (
@@ -161,3 +162,41 @@ async def test_config_flow_detects_existing_storage_and_preserves_it(
         )
         assert result2["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
         mock_remove.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_config_flow_translations_en(hass: HomeAssistant) -> None:
+    """Test loading English translations for config flow and options."""
+    translations = await async_get_translations(hass, "en", "config", {DOMAIN})
+    assert f"component.{DOMAIN}.config.step.user.title" in translations
+    assert (
+        translations[f"component.{DOMAIN}.config.step.user.title"]
+        == "Smart Drip Irrigation Configuration"
+    )
+    assert (
+        translations[f"component.{DOMAIN}.config.step.user.data.{CONF_WEATHER_ENTITY}"]
+        == "Weather Forecast Entity"
+    )
+    assert (
+        translations[f"component.{DOMAIN}.config.step.user.data.{CONF_RAIN_TOMORROW_CUTOFF}"]
+        == "Tomorrow Rain Cutoff Threshold (mm)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_config_flow_translations_sv(hass: HomeAssistant) -> None:
+    """Test loading Swedish translations for config flow and options."""
+    translations = await async_get_translations(hass, "sv", "config", {DOMAIN})
+    assert f"component.{DOMAIN}.config.step.user.title" in translations
+    assert (
+        translations[f"component.{DOMAIN}.config.step.user.title"]
+        == "Konfiguration av Smart Droppbevattning"
+    )
+    assert (
+        translations[f"component.{DOMAIN}.config.step.user.data.{CONF_WEATHER_ENTITY}"]
+        == "Väderprognosentitet"
+    )
+    assert (
+        translations[f"component.{DOMAIN}.config.step.user.data.{CONF_RAIN_TOMORROW_CUTOFF}"]
+        == "Tröskelvärde för morgondagens regnprognos (mm)"
+    )
