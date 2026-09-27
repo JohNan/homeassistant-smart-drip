@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from custom_components.smart_drip.frontend import (
     CARD_URL,
     DATA_FRONTEND_REGISTERED,
-    VERSION,
+    GIT_HASH,
     async_register_frontend,
 )
 
@@ -25,14 +25,15 @@ async def test_async_register_frontend_success(hass: HomeAssistant) -> None:
 
     await async_register_frontend(hass)
 
-    # Verify static path registered
+    # Verify static paths registered (card + brand assets)
     hass.http.async_register_static_paths.assert_awaited_once()
     configs = hass.http.async_register_static_paths.call_args[0][0]
-    assert len(configs) == 1
-    assert configs[0].url_path == CARD_URL
+    assert any(c.url_path == CARD_URL for c in configs)
+    assert any(c.url_path == "/smart_drip/logo.png" for c in configs)
+    assert any(c.url_path == "/smart_drip/icon.png" for c in configs)
 
-    # Verify frontend extra module url added
-    expected_url = f"{CARD_URL}?v={VERSION}"
+    # Verify frontend extra module url added with git hash cache buster
+    expected_url = f"{CARD_URL}?v={GIT_HASH}"
     assert expected_url in hass.data[DATA_EXTRA_MODULE_URL].urls
     assert hass.data.get(DATA_FRONTEND_REGISTERED) is True
 
@@ -62,23 +63,26 @@ async def test_async_register_frontend_with_lovelace_resources(hass: HomeAssista
     await async_register_frontend(hass)
 
     mock_resources.async_load.assert_awaited_once()
-    expected_url = f"{CARD_URL}?v={VERSION}"
+    expected_url = f"{CARD_URL}?v={GIT_HASH}"
     mock_resources.async_create_item.assert_awaited_once_with(
         {"res_type": "module", "url": expected_url}
     )
 
 
 @pytest.mark.asyncio
-async def test_async_register_frontend_existing_lovelace_resource(hass: HomeAssistant) -> None:
-    """Test Lovelace resource is not duplicated if already present."""
+async def test_async_register_frontend_existing_lovelace_resource_outdated(
+    hass: HomeAssistant,
+) -> None:
+    """Test Lovelace resource is updated when the query parameter is outdated."""
     hass.data.pop(DATA_FRONTEND_REGISTERED, None)
     hass.http = MagicMock()
     hass.http.async_register_static_paths = AsyncMock()
 
     mock_resources = MagicMock(spec=ResourceStorageCollection)
     mock_resources.loaded = True
-    mock_resources.async_items.return_value = [{"url": f"{CARD_URL}?v=0.9.0"}]
+    mock_resources.async_items.return_value = [{"id": "item_123", "url": f"{CARD_URL}?v=old_hash"}]
     mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_update_item = AsyncMock()
 
     lovelace_data = MagicMock(spec=LovelaceData)
     lovelace_data.resources = mock_resources
@@ -86,8 +90,40 @@ async def test_async_register_frontend_existing_lovelace_resource(hass: HomeAssi
 
     await async_register_frontend(hass)
 
-    # Should not call create_item because existing starts with CARD_URL
+    # Should not call create_item (no duplicate)
     mock_resources.async_create_item.assert_not_called()
+    # Should call update_item with new git hash query param
+    expected_url = f"{CARD_URL}?v={GIT_HASH}"
+    mock_resources.async_update_item.assert_awaited_once_with(
+        "item_123",
+        {"res_type": "module", "url": expected_url},
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_register_frontend_existing_lovelace_resource_matching(
+    hass: HomeAssistant,
+) -> None:
+    """Test Lovelace resource is untouched when query parameter already matches."""
+    hass.data.pop(DATA_FRONTEND_REGISTERED, None)
+    hass.http = MagicMock()
+    hass.http.async_register_static_paths = AsyncMock()
+
+    expected_url = f"{CARD_URL}?v={GIT_HASH}"
+    mock_resources = MagicMock(spec=ResourceStorageCollection)
+    mock_resources.loaded = True
+    mock_resources.async_items.return_value = [{"id": "item_123", "url": expected_url}]
+    mock_resources.async_create_item = AsyncMock()
+    mock_resources.async_update_item = AsyncMock()
+
+    lovelace_data = MagicMock(spec=LovelaceData)
+    lovelace_data.resources = mock_resources
+    hass.data[LOVELACE_DATA] = lovelace_data
+
+    await async_register_frontend(hass)
+
+    mock_resources.async_create_item.assert_not_called()
+    mock_resources.async_update_item.assert_not_called()
 
 
 @pytest.mark.asyncio

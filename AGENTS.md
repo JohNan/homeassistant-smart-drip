@@ -60,6 +60,8 @@ integration/
    The zone status sensor must always display human-readable reasoning in its `reason` attribute explaining why irrigation is running or why it was skipped.
 5. **Persistent State & Cold-Start Recorder Ingestion (`coordinator.py`)**:
    Accumulated water deficits, yesterday's rainfall, and calculation timestamps are persisted to Home Assistant's `.storage` via `Store`. On first-run cold starts when storage is empty, the coordinator safely queries the built-in `recorder` DB to seed yesterday's precipitation without blocking the event loop.
+6. **Frontend Cache Busting & Git Hash Bumping (`frontend.py`)**:
+   No formal versions are released yet. To guarantee that Home Assistant and browsers invalidate cached frontend scripts, all PRs that modify `custom_components/smart_drip/frontend/smart-drip-card.js` must manually bump `GIT_HASH` in `custom_components/smart_drip/frontend.py` and `CARD_VERSION` in `smart-drip-card.js` to the current git commit short hash (`git rev-parse --short HEAD`).
 
 ---
 
