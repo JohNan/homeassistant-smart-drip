@@ -76,7 +76,15 @@
           "zone_2_flow_rate": "Flödeshastighet Zon 2 (L/h)",
           "zone_2_enabled": "Aktivera automatisk bevattning för Zon 2",
           "max_bucket": "Maximal markvattenkapacitet (mm)",
-          "safety_limit": "Säkerhetsgräns för ventilens körtid (sekunder)"
+          "safety_limit": "Säkerhetsgräns för ventilens körtid (sekunder)",
+          "sensor_temp": "Lufttemperatursensor",
+          "sensor_humidity": "Relativ luftfuktighetssensor",
+          "sensor_dewpoint": "Daggpunktssensor",
+          "sensor_radiation": "Solstrålningssensor",
+          "sensor_wind": "Vindhastighetssensor",
+          "sensor_pressure": "Lufttryckssensor",
+          "zone_1_switch": "Ventilbrytare Zon 1",
+          "zone_2_switch": "Ventilbrytare Zon 2"
         },
         "data_description": {
           "sensor_rain_today": "Sensor för ackumulerad nederbörd eller intervall-delta.",
@@ -91,7 +99,15 @@
           "zone_2_flow_rate": "Total flödeshastighet för droppspridare i Zon 2 i liter per timme.",
           "zone_2_enabled": "Tillåt automatisk morgonbevattning för Zon 2.",
           "max_bucket": "Tak för maximalt tillåtet markvattenunderskott i millimeter.",
-          "safety_limit": "Hårdvarunära säkerhetsgräns för maximal sammanhängande körtid per ventil."
+          "safety_limit": "Hårdvarunära säkerhetsgräns för maximal sammanhängande körtid per ventil.",
+          "sensor_temp": "Sensor som mäter utomhustemperatur (°C).",
+          "sensor_humidity": "Sensor som mäter relativ luftfuktighet utomhus (%).",
+          "sensor_dewpoint": "Sensor som mäter daggpunktstemperatur utomhus (°C).",
+          "sensor_radiation": "Sensor som mäter solstrålning (W/m²).",
+          "sensor_wind": "Sensor som mäter vindhastighet (m/s).",
+          "sensor_pressure": "Sensor som mäter atmosfäriskt lufttryck (hPa/mbar).",
+          "zone_1_switch": "Brytarentitet som styr magnetventilen för Zon 1.",
+          "zone_2_switch": "Brytarentitet som styr magnetventilen för Zon 2."
         }
       }
     }

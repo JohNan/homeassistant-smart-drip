@@ -18,9 +18,11 @@ from custom_components.smart_drip.const import (
     CONF_ZONE_1_AREA,
     CONF_ZONE_1_ENABLED,
     CONF_ZONE_1_FLOW_RATE,
+    CONF_ZONE_1_SWITCH,
     CONF_ZONE_2_AREA,
     CONF_ZONE_2_ENABLED,
     CONF_ZONE_2_FLOW_RATE,
+    CONF_ZONE_2_SWITCH,
     DOMAIN,
 )
 
@@ -77,10 +79,19 @@ async def test_options_flow(hass: HomeAssistant) -> None:
     result2 = await hass.config_entries.options.async_configure(
         result["flow_id"],
         user_input={
+            "sensor_temp": "sensor.temp",
+            "sensor_humidity": "sensor.humidity",
+            "sensor_dewpoint": "sensor.dewpoint",
+            "sensor_radiation": "sensor.rad",
+            "sensor_wind": "sensor.wind",
+            "sensor_pressure": "sensor.pressure",
+            "rain_is_rate": False,
             CONF_WEATHER_ENTITY: "weather.custom_forecast",
             CONF_RAIN_TOMORROW_CUTOFF: 8.0,
             CONF_SENSOR_RAIN_TODAY: "sensor.custom_rain_helper",
             CONF_SENSOR_RAIN_INTENSITY: "sensor.custom_rain_rate",
+            CONF_ZONE_1_SWITCH: "valve.zone_1_valve",
+            CONF_ZONE_2_SWITCH: "valve.zone_2_valve",
             CONF_ZONE_1_AREA: 6.0,
             CONF_ZONE_1_FLOW_RATE: 50.0,
             CONF_ZONE_1_ENABLED: True,
@@ -95,6 +106,8 @@ async def test_options_flow(hass: HomeAssistant) -> None:
     assert entry.options[CONF_WEATHER_ENTITY] == "weather.custom_forecast"
     assert entry.options[CONF_RAIN_TOMORROW_CUTOFF] == 8.0
     assert entry.options[CONF_SENSOR_RAIN_TODAY] == "sensor.custom_rain_helper"
+    assert entry.options[CONF_ZONE_1_SWITCH] == "valve.zone_1_valve"
+    assert entry.options[CONF_ZONE_2_SWITCH] == "valve.zone_2_valve"
     assert entry.options[CONF_ZONE_1_AREA] == 6.0
     assert entry.options[CONF_MAX_BUCKET] == 30.0
 

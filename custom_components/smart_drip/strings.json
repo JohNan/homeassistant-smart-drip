@@ -76,7 +76,15 @@
           "zone_2_flow_rate": "Zone 2 Flow Rate (L/h)",
           "zone_2_enabled": "Enable Zone 2 Auto-Irrigation",
           "max_bucket": "Maximum Soil Bucket Capacity (mm)",
-          "safety_limit": "Valve Run Safety Ceiling (seconds)"
+          "safety_limit": "Valve Run Safety Ceiling (seconds)",
+          "sensor_temp": "Air Temperature Sensor",
+          "sensor_humidity": "Relative Humidity Sensor",
+          "sensor_dewpoint": "Dewpoint Sensor",
+          "sensor_radiation": "Solar Radiation Sensor",
+          "sensor_wind": "Wind Speed Sensor",
+          "sensor_pressure": "Barometric Pressure Sensor",
+          "zone_1_switch": "Zone 1 Valve Switch Entity",
+          "zone_2_switch": "Zone 2 Valve Switch Entity"
         },
         "data_description": {
           "sensor_rain_today": "Precipitation accumulation or interval delta sensor.",
@@ -91,7 +99,15 @@
           "zone_2_flow_rate": "Total emitter discharge rate for Zone 2 in liters per hour.",
           "zone_2_enabled": "Allow automated morning irrigation dispatch for Zone 2.",
           "max_bucket": "Cap on maximum allowed soil water deficit depth in millimeters.",
-          "safety_limit": "Hard hardware safety limit for maximum single valve actuation duration."
+          "safety_limit": "Hard hardware safety limit for maximum single valve actuation duration.",
+          "sensor_temp": "Sensor measuring ambient outdoor temperature (°C).",
+          "sensor_humidity": "Sensor measuring outdoor relative humidity (%).",
+          "sensor_dewpoint": "Sensor measuring outdoor dewpoint temperature (°C).",
+          "sensor_radiation": "Sensor measuring solar irradiance (W/m²).",
+          "sensor_wind": "Sensor measuring ambient wind velocity (m/s).",
+          "sensor_pressure": "Sensor measuring barometric station pressure (hPa/mbar).",
+          "zone_1_switch": "Switch entity controlling the Zone 1 latching solenoid.",
+          "zone_2_switch": "Switch entity controlling the Zone 2 latching solenoid."
         }
       }
     }
