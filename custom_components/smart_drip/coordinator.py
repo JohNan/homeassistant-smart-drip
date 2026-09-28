@@ -664,9 +664,20 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     f"Scheduled irrigation active ({round(d / 60)} min)."
                 )
                 self.async_set_updated_data(self._build_coordinator_data())
-                await self.hass.services.async_call(
-                    "switch", "turn_on", {"entity_id": sw}, blocking=True
-                )
+
+                domain = sw.split(".", 1)[0]
+                if domain == "valve":
+                    await self.hass.services.async_call(
+                        "valve", "open_valve", {"entity_id": sw}, blocking=True
+                    )
+                elif domain == "switch":
+                    await self.hass.services.async_call(
+                        "switch", "turn_on", {"entity_id": sw}, blocking=True
+                    )
+                else:
+                    await self.hass.services.async_call(
+                        "homeassistant", "turn_on", {"entity_id": sw}, blocking=True
+                    )
 
             async def turn_off(
                 z: int = zone,
@@ -675,9 +686,20 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f: float = flow,
                 a: float = area,
             ) -> None:
-                await self.hass.services.async_call(
-                    "switch", "turn_off", {"entity_id": sw}, blocking=True
-                )
+                domain = sw.split(".", 1)[0]
+                if domain == "valve":
+                    await self.hass.services.async_call(
+                        "valve", "close_valve", {"entity_id": sw}, blocking=True
+                    )
+                elif domain == "switch":
+                    await self.hass.services.async_call(
+                        "switch", "turn_off", {"entity_id": sw}, blocking=True
+                    )
+                else:
+                    await self.hass.services.async_call(
+                        "homeassistant", "turn_off", {"entity_id": sw}, blocking=True
+                    )
+
                 # Compute applied precipitation in mm
                 pr = calculate_precipitation_rate(f, a)
                 applied_mm = round((d / 3600.0) * pr, 2)
@@ -737,14 +759,36 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 (duration_seconds / 3600.0) * flow, 1
             )
             self.async_set_updated_data(self._build_coordinator_data())
-            await self.hass.services.async_call(
-                "switch", "turn_on", {"entity_id": switch_entity}, blocking=True
-            )
+
+            domain = switch_entity.split(".", 1)[0]
+            if domain == "valve":
+                await self.hass.services.async_call(
+                    "valve", "open_valve", {"entity_id": switch_entity}, blocking=True
+                )
+            elif domain == "switch":
+                await self.hass.services.async_call(
+                    "switch", "turn_on", {"entity_id": switch_entity}, blocking=True
+                )
+            else:
+                await self.hass.services.async_call(
+                    "homeassistant", "turn_on", {"entity_id": switch_entity}, blocking=True
+                )
 
         async def turn_off() -> None:
-            await self.hass.services.async_call(
-                "switch", "turn_off", {"entity_id": switch_entity}, blocking=True
-            )
+            domain = switch_entity.split(".", 1)[0]
+            if domain == "valve":
+                await self.hass.services.async_call(
+                    "valve", "close_valve", {"entity_id": switch_entity}, blocking=True
+                )
+            elif domain == "switch":
+                await self.hass.services.async_call(
+                    "switch", "turn_off", {"entity_id": switch_entity}, blocking=True
+                )
+            else:
+                await self.hass.services.async_call(
+                    "homeassistant", "turn_off", {"entity_id": switch_entity}, blocking=True
+                )
+
             pr = calculate_precipitation_rate(flow, area)
             applied_mm = round((duration_seconds / 3600.0) * pr, 2)
             liters = round((duration_seconds / 3600.0) * flow, 1)

@@ -12,6 +12,7 @@ from homeassistant.config_entries import (
     OptionsFlowWithConfigEntry,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.storage import Store
 
 from .const import (
@@ -89,33 +90,73 @@ class SmartDripConfigFlow(ConfigFlow, domain=DOMAIN):
         has_existing_storage = stored is not None
 
         schema_dict: dict[Any, Any] = {
-            vol.Required(CONF_SENSOR_TEMP, default=DEFAULT_SENSOR_TEMP): str,
-            vol.Required(CONF_SENSOR_HUMIDITY, default=DEFAULT_SENSOR_HUMIDITY): str,
-            vol.Required(CONF_SENSOR_DEWPOINT, default=DEFAULT_SENSOR_DEWPOINT): str,
-            vol.Required(CONF_SENSOR_RADIATION, default=DEFAULT_SENSOR_RADIATION): str,
-            vol.Required(CONF_SENSOR_WIND, default=DEFAULT_SENSOR_WIND): str,
-            vol.Required(CONF_SENSOR_PRESSURE, default=DEFAULT_SENSOR_PRESSURE): str,
-            vol.Required(CONF_SENSOR_RAIN_TODAY, default=DEFAULT_SENSOR_RAIN_TODAY): str,
-            vol.Required(CONF_SENSOR_RAIN_INTENSITY, default=DEFAULT_SENSOR_RAIN_INTENSITY): str,
-            vol.Required(CONF_RAIN_IS_RATE, default=DEFAULT_RAIN_IS_RATE): bool,
-            vol.Optional(CONF_WEATHER_ENTITY, default=DEFAULT_WEATHER_ENTITY): str,
+            vol.Required(CONF_SENSOR_TEMP, default=DEFAULT_SENSOR_TEMP): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(
+                CONF_SENSOR_HUMIDITY, default=DEFAULT_SENSOR_HUMIDITY
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(
+                CONF_SENSOR_DEWPOINT, default=DEFAULT_SENSOR_DEWPOINT
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(
+                CONF_SENSOR_RADIATION, default=DEFAULT_SENSOR_RADIATION
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(CONF_SENSOR_WIND, default=DEFAULT_SENSOR_WIND): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(
+                CONF_SENSOR_PRESSURE, default=DEFAULT_SENSOR_PRESSURE
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(
+                CONF_SENSOR_RAIN_TODAY, default=DEFAULT_SENSOR_RAIN_TODAY
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(
+                CONF_SENSOR_RAIN_INTENSITY, default=DEFAULT_SENSOR_RAIN_INTENSITY
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(
+                CONF_RAIN_IS_RATE, default=DEFAULT_RAIN_IS_RATE
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_WEATHER_ENTITY, default=DEFAULT_WEATHER_ENTITY
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
             vol.Optional(
                 CONF_RAIN_TOMORROW_CUTOFF, default=DEFAULT_RAIN_TOMORROW_CUTOFF_MM
-            ): vol.Coerce(float),
-            vol.Required(CONF_ZONE_1_SWITCH, default=DEFAULT_ZONE_1_SWITCH): str,
-            vol.Required(CONF_ZONE_1_AREA, default=DEFAULT_ZONE_1_AREA_M2): vol.Coerce(float),
-            vol.Required(CONF_ZONE_1_FLOW_RATE, default=DEFAULT_ZONE_1_FLOW_RATE_L_H): vol.Coerce(
-                float
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
             ),
-            vol.Required(CONF_ZONE_1_ENABLED, default=True): bool,
-            vol.Required(CONF_ZONE_2_SWITCH, default=DEFAULT_ZONE_2_SWITCH): str,
-            vol.Required(CONF_ZONE_2_AREA, default=DEFAULT_ZONE_2_AREA_M2): vol.Coerce(float),
-            vol.Required(CONF_ZONE_2_FLOW_RATE, default=DEFAULT_ZONE_2_FLOW_RATE_L_H): vol.Coerce(
-                float
+            vol.Required(
+                CONF_ZONE_1_SWITCH, default=DEFAULT_ZONE_1_SWITCH
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain=["switch", "valve"])),
+            vol.Required(CONF_ZONE_1_AREA, default=DEFAULT_ZONE_1_AREA_M2): selector.NumberSelector(
+                selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
             ),
-            vol.Required(CONF_ZONE_2_ENABLED, default=False): bool,
-            vol.Required(CONF_MAX_BUCKET, default=DEFAULT_MAX_BUCKET_MM): vol.Coerce(float),
-            vol.Required(CONF_SAFETY_LIMIT, default=DEFAULT_SAFETY_LIMIT_SECONDS): vol.Coerce(int),
+            vol.Required(
+                CONF_ZONE_1_FLOW_RATE, default=DEFAULT_ZONE_1_FLOW_RATE_L_H
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+            ),
+            vol.Required(CONF_ZONE_1_ENABLED, default=True): selector.BooleanSelector(),
+            vol.Required(
+                CONF_ZONE_2_SWITCH, default=DEFAULT_ZONE_2_SWITCH
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain=["switch", "valve"])),
+            vol.Required(CONF_ZONE_2_AREA, default=DEFAULT_ZONE_2_AREA_M2): selector.NumberSelector(
+                selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+            ),
+            vol.Required(
+                CONF_ZONE_2_FLOW_RATE, default=DEFAULT_ZONE_2_FLOW_RATE_L_H
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+            ),
+            vol.Required(CONF_ZONE_2_ENABLED, default=False): selector.BooleanSelector(),
+            vol.Required(CONF_MAX_BUCKET, default=DEFAULT_MAX_BUCKET_MM): selector.NumberSelector(
+                selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+            ),
+            vol.Required(
+                CONF_SAFETY_LIMIT, default=DEFAULT_SAFETY_LIMIT_SECONDS
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step=1)
+            ),
         }
 
         if has_existing_storage:
@@ -159,65 +200,115 @@ class SmartDripOptionsFlowHandler(OptionsFlowWithConfigEntry):
         options_schema = vol.Schema(
             {
                 vol.Required(
+                    CONF_SENSOR_TEMP,
+                    default=str(self._get_val(CONF_SENSOR_TEMP, DEFAULT_SENSOR_TEMP)),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Required(
+                    CONF_SENSOR_HUMIDITY,
+                    default=str(self._get_val(CONF_SENSOR_HUMIDITY, DEFAULT_SENSOR_HUMIDITY)),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Required(
+                    CONF_SENSOR_DEWPOINT,
+                    default=str(self._get_val(CONF_SENSOR_DEWPOINT, DEFAULT_SENSOR_DEWPOINT)),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Required(
+                    CONF_SENSOR_RADIATION,
+                    default=str(self._get_val(CONF_SENSOR_RADIATION, DEFAULT_SENSOR_RADIATION)),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Required(
+                    CONF_SENSOR_WIND,
+                    default=str(self._get_val(CONF_SENSOR_WIND, DEFAULT_SENSOR_WIND)),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Required(
+                    CONF_SENSOR_PRESSURE,
+                    default=str(self._get_val(CONF_SENSOR_PRESSURE, DEFAULT_SENSOR_PRESSURE)),
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Required(
                     CONF_SENSOR_RAIN_TODAY,
                     default=str(self._get_val(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)),
-                ): str,
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
                 vol.Required(
                     CONF_SENSOR_RAIN_INTENSITY,
                     default=str(
                         self._get_val(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
                     ),
-                ): str,
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
                 vol.Required(
                     CONF_RAIN_IS_RATE,
                     default=bool(self._get_val(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE)),
-                ): bool,
+                ): selector.BooleanSelector(),
                 vol.Optional(
                     CONF_WEATHER_ENTITY,
                     default=str(self._get_val(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)),
-                ): str,
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
                 vol.Optional(
                     CONF_RAIN_TOMORROW_CUTOFF,
                     default=float(
                         self._get_val(CONF_RAIN_TOMORROW_CUTOFF, DEFAULT_RAIN_TOMORROW_CUTOFF_MM)
                     ),
-                ): vol.Coerce(float),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+                ),
+                vol.Required(
+                    CONF_ZONE_1_SWITCH,
+                    default=str(self._get_val(CONF_ZONE_1_SWITCH, DEFAULT_ZONE_1_SWITCH)),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["switch", "valve"])
+                ),
                 vol.Required(
                     CONF_ZONE_1_AREA,
                     default=float(self._get_val(CONF_ZONE_1_AREA, DEFAULT_ZONE_1_AREA_M2)),
-                ): vol.Coerce(float),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+                ),
                 vol.Required(
                     CONF_ZONE_1_FLOW_RATE,
                     default=float(
                         self._get_val(CONF_ZONE_1_FLOW_RATE, DEFAULT_ZONE_1_FLOW_RATE_L_H)
                     ),
-                ): vol.Coerce(float),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+                ),
                 vol.Required(
                     CONF_ZONE_1_ENABLED,
                     default=bool(self._get_val(CONF_ZONE_1_ENABLED, True)),
-                ): bool,
+                ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_ZONE_2_SWITCH,
+                    default=str(self._get_val(CONF_ZONE_2_SWITCH, DEFAULT_ZONE_2_SWITCH)),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["switch", "valve"])
+                ),
                 vol.Required(
                     CONF_ZONE_2_AREA,
                     default=float(self._get_val(CONF_ZONE_2_AREA, DEFAULT_ZONE_2_AREA_M2)),
-                ): vol.Coerce(float),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+                ),
                 vol.Required(
                     CONF_ZONE_2_FLOW_RATE,
                     default=float(
                         self._get_val(CONF_ZONE_2_FLOW_RATE, DEFAULT_ZONE_2_FLOW_RATE_L_H)
                     ),
-                ): vol.Coerce(float),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+                ),
                 vol.Required(
                     CONF_ZONE_2_ENABLED,
                     default=bool(self._get_val(CONF_ZONE_2_ENABLED, False)),
-                ): bool,
+                ): selector.BooleanSelector(),
                 vol.Required(
                     CONF_MAX_BUCKET,
                     default=float(self._get_val(CONF_MAX_BUCKET, DEFAULT_MAX_BUCKET_MM)),
-                ): vol.Coerce(float),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step="any")
+                ),
                 vol.Required(
                     CONF_SAFETY_LIMIT,
                     default=int(self._get_val(CONF_SAFETY_LIMIT, DEFAULT_SAFETY_LIMIT_SECONDS)),
-                ): vol.Coerce(int),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(mode=selector.NumberSelectorMode.BOX, step=1)
+                ),
             }
         )
 

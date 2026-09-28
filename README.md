@@ -10,6 +10,8 @@ Custom Home Assistant integration for smart micro-drip irrigation using the **So
 
 - **Evapotranspiration Math Model**: Nightly calculation of FAO-56 Penman-Monteith reference evapotranspiration ($ET_0$) using live localized sensor telemetry from Tempest WeatherFlow (solar radiation, temperature, relative humidity, wind speed, barometric pressure).
 - **Dynamic Water Budget & Deficit Tracking**: Soil moisture deficit modeling with configurable bucket capacity, rain subtraction, and runtime derivation ($40\text{ L/h} \Rightarrow 8.33\text{ mm/h} \Rightarrow 432\text{ s/mm}$).
+- **Runtime Reconfigurability**: Modify zone areas, flow rates, rain sensors, weather providers, and physical switch channels directly via Home Assistant Options Flow without needing to delete and reinstall the integration.
+- **Dual-Domain Valve Support**: Easily route actuation calls to standard `switch` entities (`turn_on`/`turn_off`) or specialized smart `valve` entities (`open_valve`/`close_valve`).
 - **Hardware Interlocks & Solenoid Protection**:
   - Mutual exclusion preventing concurrent dual-channel actuation.
   - Mandatory 10-second idle interlock between channel switches for latching capacitor recharge and pressure stabilization.
