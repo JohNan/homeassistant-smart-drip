@@ -20,7 +20,7 @@ CARD_URL: Final = f"{URL_BASE}/{CARD_FILENAME}"
 DATA_FRONTEND_REGISTERED: Final = f"{DOMAIN}_frontend_registered"
 
 # Short git commit hash for cache busting (manually bumped on each PR modifying the card)
-GIT_HASH: Final = "706459f"
+GIT_HASH: Final = "ec96825"
 VERSION: Final = GIT_HASH
 
 

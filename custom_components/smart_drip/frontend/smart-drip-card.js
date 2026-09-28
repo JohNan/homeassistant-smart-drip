@@ -1,10 +1,10 @@
 /**
  * Smart Drip Irrigation Lovelace Card
  * Custom card for Home Assistant to monitor ET0, soil water deficit, telemetry, and control irrigation zones.
- * Git Commit Hash: 706459f
+ * Git Commit Hash: ec96825
  */
 
-const CARD_VERSION = "706459f";
+const CARD_VERSION = "ec96825";
 
 class SmartDripCard extends HTMLElement {
   constructor() {
