@@ -112,6 +112,9 @@
       },
       "zone_status": {
         "name": "Zonstatus"
+      },
+      "zone_last_run": {
+        "name": "Senaste bevattning"
       }
     }
   },

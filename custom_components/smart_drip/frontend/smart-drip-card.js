@@ -1,10 +1,10 @@
 /**
  * Smart Drip Irrigation Lovelace Card
  * Custom card for Home Assistant to monitor ET0, soil water deficit, telemetry, and control irrigation zones.
- * Git Commit Hash: 88b1414
+ * Git Commit Hash: 706459f
  */
 
-const CARD_VERSION = "88b1414";
+const CARD_VERSION = "706459f";
 
 class SmartDripCard extends HTMLElement {
   constructor() {
@@ -141,6 +141,14 @@ class SmartDripCard extends HTMLElement {
         this._config.yesterday_rain_entity ||
         findEntity("smart_drip", "yesterday_rain") ||
         "sensor.smart_drip_yesterday_rain",
+      z1_last_run:
+        this._config.zone_1_last_run_entity ||
+        findEntity("smart_drip", "zone_1_last_run") ||
+        "sensor.smart_drip_zone_1_last_run",
+      z2_last_run:
+        this._config.zone_2_last_run_entity ||
+        findEntity("smart_drip", "zone_2_last_run") ||
+        "sensor.smart_drip_zone_2_last_run",
     };
 
     this._discoveredEntities = entities;
@@ -155,6 +163,61 @@ class SmartDripCard extends HTMLElement {
     if (s.includes("idle")) return "var(--primary-color, #2196f3)";
     if (s.includes("error") || s.includes("fail")) return "var(--error-color, #f44336)";
     return "var(--secondary-text-color, #757575)";
+  }
+
+  _formatLastRunInfo(isoString, durationSec, liters, mm, trigger) {
+    if (!isoString) return { dateStr: "Never", statsStr: "No previous runs recorded", hasRun: false };
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return { dateStr: String(isoString), statsStr: "", hasRun: true };
+
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const timeStr = `${hours}:${minutes}`;
+
+    const diffMs = Math.max(0, now.getTime() - date.getTime());
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    let relative = "";
+    if (diffMins < 60) {
+      relative = `${diffMins}m ago`;
+    } else {
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) {
+        relative = `${diffHours}h ago`;
+      } else {
+        const diffDays = Math.floor(diffHours / 24);
+        relative = `${diffDays}d ago`;
+      }
+    }
+
+    let dateStr = "";
+    if (isToday) {
+      dateStr = `Today at ${timeStr} (${relative})`;
+    } else if (isYesterday) {
+      dateStr = `Yesterday at ${timeStr} (${relative})`;
+    } else {
+      const month = date.toLocaleString("en-US", { month: "short" });
+      const day = date.getDate();
+      dateStr = `${month} ${day}, ${timeStr} (${relative})`;
+    }
+
+    const durMin = Math.round((durationSec || 0) / 60);
+    const lVal = parseFloat(liters) || 0;
+    const mmVal = parseFloat(mm) || 0;
+    const trigText = trigger === "manual" ? "Manual" : "Auto 06:00";
+    const statsParts = [];
+    if (durMin > 0) statsParts.push(`${durMin} min`);
+    if (lVal > 0) statsParts.push(`${lVal.toFixed(1)} L`);
+    if (mmVal > 0) statsParts.push(`${mmVal.toFixed(1)} mm`);
+    statsParts.push(trigText);
+    const statsStr = statsParts.join(" · ");
+
+    return { dateStr, statsStr, hasRun: true, durMin, lVal, mmVal, trigText };
   }
 
   _render() {
@@ -209,8 +272,61 @@ class SmartDripCard extends HTMLElement {
     const z2ValveState = states[entities.z2_valve];
     const z2ValveOpen = z2ValveState ? z2ValveState.state === "on" : false;
 
-    const isRunning = z1ValveOpen || z2ValveOpen || z1Status.includes("Running") || z2Status.includes("Running");
-    const activeZone = z1ValveOpen ? "Zone 1" : z2ValveOpen ? "Zone 2" : null;
+    const z1LastRunState = states[entities.z1_last_run];
+    const z2LastRunState = states[entities.z2_last_run];
+
+    const z1LastRunTs =
+      z1LastRunState?.state && z1LastRunState.state !== "unavailable" && z1LastRunState.state !== "unknown"
+        ? z1LastRunState.state
+        : z1StatusState?.attributes?.last_run_timestamp;
+    const z1LastRunDurationSec =
+      z1LastRunState?.attributes?.duration_seconds ?? z1StatusState?.attributes?.last_run_duration_seconds ?? 0;
+    const z1LastRunLiters =
+      z1LastRunState?.attributes?.liters ?? z1StatusState?.attributes?.last_run_liters ?? 0.0;
+    const z1LastRunMm =
+      z1LastRunState?.attributes?.applied_mm ?? z1StatusState?.attributes?.last_run_applied_mm ?? 0.0;
+    const z1LastRunTrigger =
+      z1LastRunState?.attributes?.trigger ?? z1StatusState?.attributes?.last_run_trigger;
+    const z1LastRunInfo = this._formatLastRunInfo(
+      z1LastRunTs,
+      z1LastRunDurationSec,
+      z1LastRunLiters,
+      z1LastRunMm,
+      z1LastRunTrigger
+    );
+
+    const z2LastRunTs =
+      z2LastRunState?.state && z2LastRunState.state !== "unavailable" && z2LastRunState.state !== "unknown"
+        ? z2LastRunState.state
+        : z2StatusState?.attributes?.last_run_timestamp;
+    const z2LastRunDurationSec =
+      z2LastRunState?.attributes?.duration_seconds ?? z2StatusState?.attributes?.last_run_duration_seconds ?? 0;
+    const z2LastRunLiters =
+      z2LastRunState?.attributes?.liters ?? z2StatusState?.attributes?.last_run_liters ?? 0.0;
+    const z2LastRunMm =
+      z2LastRunState?.attributes?.applied_mm ?? z2StatusState?.attributes?.last_run_applied_mm ?? 0.0;
+    const z2LastRunTrigger =
+      z2LastRunState?.attributes?.trigger ?? z2StatusState?.attributes?.last_run_trigger;
+    const z2LastRunInfo = this._formatLastRunInfo(
+      z2LastRunTs,
+      z2LastRunDurationSec,
+      z2LastRunLiters,
+      z2LastRunMm,
+      z2LastRunTrigger
+    );
+
+    const z1Running =
+      z1ValveOpen || (typeof z1Status === "string" && z1Status.toLowerCase().includes("running"));
+    const z2Running =
+      z2ValveOpen || (typeof z2Status === "string" && z2Status.toLowerCase().includes("running"));
+    const isRunning = z1Running || z2Running;
+    const activeZone = z1Running ? "Zone 1" : z2Running ? "Zone 2" : null;
+    const activeZoneName = z1Running ? "Zone 1: Stora rabatten" : z2Running ? "Zone 2: Zon 2" : "Irrigating";
+    const activeDurationSec = z1Running ? (z1DurationSec || 0) : (z2DurationSec || 0);
+    const activeDurationMin = Math.round(activeDurationSec / 60);
+    const activeLiters = z1Running
+      ? (z1StatusState?.attributes?.estimated_liters || (activeDurationSec ? ((activeDurationSec / 3600) * 40).toFixed(1) : "0.0"))
+      : (z2StatusState?.attributes?.estimated_liters || (activeDurationSec ? ((activeDurationSec / 3600) * 40).toFixed(1) : "0.0"));
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -511,6 +627,130 @@ class SmartDripCard extends HTMLElement {
           font-weight: 600;
           margin-top: 2px;
         }
+        .active-irrigation-card {
+          background: linear-gradient(135deg, rgba(3, 169, 244, 0.12) 0%, rgba(2, 136, 209, 0.22) 100%);
+          border: 2px solid #03a9f4;
+          border-radius: 10px;
+          padding: 12px 14px;
+          margin-bottom: 16px;
+          box-shadow: 0 0 12px rgba(3, 169, 244, 0.35);
+          animation: active-glow 2.5s infinite alternate;
+        }
+        @keyframes active-glow {
+          0% { box-shadow: 0 0 6px rgba(3, 169, 244, 0.25); }
+          100% { box-shadow: 0 0 16px rgba(3, 169, 244, 0.6); }
+        }
+        .active-irrigation-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .active-icon-wrapper {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          background: #0288d1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+          animation: spin-pulse 3s infinite ease-in-out;
+        }
+        @keyframes spin-pulse {
+          0% { transform: scale(0.95); }
+          50% { transform: scale(1.1); }
+          100% { transform: scale(0.95); }
+        }
+        .active-details {
+          flex: 1;
+        }
+        .active-title {
+          font-weight: 700;
+          font-size: 0.95rem;
+          color: var(--primary-text-color, #212121);
+        }
+        .active-subtitle {
+          font-size: 0.78rem;
+          color: var(--secondary-text-color, #616161);
+          margin-top: 1px;
+        }
+        .active-badge {
+          background: #0288d1;
+          color: #fff;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          padding: 3px 8px;
+          border-radius: 10px;
+          animation: pulse 1.5s infinite ease-in-out;
+        }
+        .active-metrics {
+          display: flex;
+          gap: 8px;
+          margin-top: 10px;
+          padding-top: 8px;
+          border-top: 1px solid rgba(3, 169, 244, 0.3);
+          flex-wrap: wrap;
+        }
+        .active-metric-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          background: rgba(255, 255, 255, 0.7);
+          padding: 3px 8px;
+          border-radius: 6px;
+          font-size: 0.75rem;
+          color: var(--primary-text-color, #212121);
+        }
+        .zone-card-running {
+          border: 2px solid #03a9f4 !important;
+          background: rgba(3, 169, 244, 0.04) !important;
+        }
+        .badge-running-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+          background: #0288d1;
+          color: #fff;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.4px;
+          padding: 2px 7px;
+          border-radius: 8px;
+          margin-left: 6px;
+          animation: pulse 1.5s infinite;
+        }
+        .zone-last-run-box {
+          background: var(--secondary-background-color, #f7f9fa);
+          border-radius: 6px;
+          padding: 6px 10px;
+          margin: 2px 0 4px 0;
+          border-left: 3px solid #81c784;
+        }
+        .zone-last-run-header {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 0.78rem;
+          color: var(--secondary-text-color, #616161);
+        }
+        .zone-last-run-header strong {
+          color: var(--primary-text-color, #212121);
+        }
+        .zone-last-run-stats {
+          font-size: 0.74rem;
+          color: var(--secondary-text-color, #757575);
+          margin-top: 2px;
+          padding-left: 19px;
+        }
+        button.btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          filter: none;
+        }
+        button.btn.btn-running {
+          background: #00acc1;
+        }
       </style>
 
       <ha-card>
@@ -525,9 +765,49 @@ class SmartDripCard extends HTMLElement {
           </div>
         </div>
 
-        <div class="banner" style="border-left-color: ${this._getStatusColor(z1Status)}">
-          <strong>Decision Telemetry</strong>
-          <div class="banner-reason">${z1Reason}</div>
+        ${
+          isRunning
+            ? `
+        <div class="active-irrigation-card">
+          <div class="active-irrigation-header">
+            <div class="active-icon-wrapper">
+              <ha-icon icon="mdi:water-pump" class="active-pulse-icon" style="--mdc-icon-size:20px;"></ha-icon>
+            </div>
+            <div class="active-details">
+              <div class="active-title">Currently Irrigating: ${activeZoneName}</div>
+              <div class="active-subtitle">Solenoid valve open · 40.0 L/h emitter flow rate</div>
+            </div>
+            <div class="active-badge">IRRIGATING NOW</div>
+          </div>
+          <div class="active-metrics">
+            <div class="active-metric-chip">
+              <ha-icon icon="mdi:timer-outline" style="--mdc-icon-size: 14px;"></ha-icon>
+              <span>Target: <strong>${activeDurationMin} min</strong></span>
+            </div>
+            <div class="active-metric-chip">
+              <ha-icon icon="mdi:water" style="--mdc-icon-size: 14px;"></ha-icon>
+              <span>Est. Volume: <strong>${activeLiters} L</strong></span>
+            </div>
+            <div class="active-metric-chip">
+              <ha-icon icon="mdi:pipe-valve" style="--mdc-icon-size: 14px;"></ha-icon>
+              <span>Active Channel: <strong>${z1Running ? "Channel 1" : "Channel 2"}</strong></span>
+            </div>
+          </div>
+        </div>
+        `
+            : ""
+        }
+
+        <div class="banner" style="border-left-color: ${this._getStatusColor(isRunning ? 'Running' : z1Status)}">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong>Decision Telemetry</strong>
+            ${
+              !isRunning && (z1LastRunInfo.hasRun || z2LastRunInfo.hasRun)
+                ? `<span style="font-size:0.75rem; color:var(--secondary-text-color);">Recent Activity Logged</span>`
+                : ""
+            }
+          </div>
+          <div class="banner-reason">${isRunning ? `Active irrigation running for ${activeZoneName} (Target ${activeDurationMin} min, est. ${activeLiters} L).` : z1Reason}</div>
         </div>
 
         ${
@@ -560,13 +840,15 @@ class SmartDripCard extends HTMLElement {
             ? `
         <div class="zones-container">
           <!-- Zone 1 -->
-          <div class="zone-card">
+          <div class="zone-card ${z1Running ? 'zone-card-running' : ''}">
             <div class="zone-header">
               <div class="zone-title">
                 <ha-icon icon="mdi:flower" style="color: #4caf50;"></ha-icon>
                 <span>Zone 1: Stora rabatten</span>
                 ${
-                  z1ValveOpen
+                  z1Running
+                    ? `<span class="badge-running-pill"><ha-icon icon="mdi:water" style="--mdc-icon-size:12px;"></ha-icon> IRRIGATING</span>`
+                    : z1ValveOpen
                     ? `<span style="font-size:0.75rem; color:#03a9f4; font-weight:bold;">(OPEN)</span>`
                     : ""
                 }
@@ -579,28 +861,39 @@ class SmartDripCard extends HTMLElement {
                 </label>
               </div>
             </div>
+
+            <div class="zone-last-run-box">
+              <div class="zone-last-run-header">
+                <ha-icon icon="mdi:history" style="--mdc-icon-size:14px; color:${z1LastRunInfo.hasRun ? '#2e7d32' : 'inherit'};"></ha-icon>
+                <span>Last run: <strong>${z1LastRunInfo.dateStr}</strong></span>
+              </div>
+              ${z1LastRunInfo.hasRun ? `<div class="zone-last-run-stats">${z1LastRunInfo.statsStr}</div>` : ""}
+            </div>
+
             <div class="zone-controls">
               <div class="zone-stats">
                 <span>Deficit: <strong>${z1Deficit.toFixed(1)} mm</strong></span>
-                <span>Est: <strong>${z1DurationMin} min</strong></span>
+                <span>Next: <strong>${z1DurationMin} min</strong></span>
               </div>
               <div class="zone-actions">
-                <button class="btn" id="z1-run-btn">
-                  <ha-icon icon="mdi:play" style="--mdc-icon-size:16px;"></ha-icon>
-                  <span>Manual Run</span>
+                <button class="btn ${z1Running ? 'btn-running' : ''}" id="z1-run-btn" ${z1Running ? "disabled" : ""}>
+                  <ha-icon icon="${z1Running ? 'mdi:progress-clock' : 'mdi:play'}" style="--mdc-icon-size:16px;"></ha-icon>
+                  <span>${z1Running ? 'Irrigating...' : 'Manual Run'}</span>
                 </button>
               </div>
             </div>
           </div>
 
           <!-- Zone 2 -->
-          <div class="zone-card">
+          <div class="zone-card ${z2Running ? 'zone-card-running' : ''}">
             <div class="zone-header">
               <div class="zone-title">
                 <ha-icon icon="mdi:sprout" style="color: #8bc34a;"></ha-icon>
                 <span>Zone 2: Zon 2</span>
                 ${
-                  z2ValveOpen
+                  z2Running
+                    ? `<span class="badge-running-pill"><ha-icon icon="mdi:water" style="--mdc-icon-size:12px;"></ha-icon> IRRIGATING</span>`
+                    : z2ValveOpen
                     ? `<span style="font-size:0.75rem; color:#03a9f4; font-weight:bold;">(OPEN)</span>`
                     : ""
                 }
@@ -613,15 +906,24 @@ class SmartDripCard extends HTMLElement {
                 </label>
               </div>
             </div>
+
+            <div class="zone-last-run-box">
+              <div class="zone-last-run-header">
+                <ha-icon icon="mdi:history" style="--mdc-icon-size:14px; color:${z2LastRunInfo.hasRun ? '#2e7d32' : 'inherit'};"></ha-icon>
+                <span>Last run: <strong>${z2LastRunInfo.dateStr}</strong></span>
+              </div>
+              ${z2LastRunInfo.hasRun ? `<div class="zone-last-run-stats">${z2LastRunInfo.statsStr}</div>` : ""}
+            </div>
+
             <div class="zone-controls">
               <div class="zone-stats">
                 <span>Deficit: <strong>${z2Deficit.toFixed(1)} mm</strong></span>
-                <span>Est: <strong>${z2DurationMin} min</strong></span>
+                <span>Next: <strong>${z2DurationMin} min</strong></span>
               </div>
               <div class="zone-actions">
-                <button class="btn" id="z2-run-btn">
-                  <ha-icon icon="mdi:play" style="--mdc-icon-size:16px;"></ha-icon>
-                  <span>Manual Run</span>
+                <button class="btn ${z2Running ? 'btn-running' : ''}" id="z2-run-btn" ${z2Running ? "disabled" : ""}>
+                  <ha-icon icon="${z2Running ? 'mdi:progress-clock' : 'mdi:play'}" style="--mdc-icon-size:16px;"></ha-icon>
+                  <span>${z2Running ? 'Irrigating...' : 'Manual Run'}</span>
                 </button>
               </div>
             </div>

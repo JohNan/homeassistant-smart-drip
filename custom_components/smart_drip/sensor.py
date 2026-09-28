@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -15,8 +16,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, STATUS_RUNNING
 from .coordinator import SmartDripCoordinator
 
 
@@ -41,6 +43,7 @@ async def async_setup_entry(
                 SmartDripZoneStatusSensor(coordinator, entry, zone),
                 SmartDripZoneDeficitSensor(coordinator, entry, zone),
                 SmartDripZoneDurationSensor(coordinator, entry, zone),
+                SmartDripZoneLastRunSensor(coordinator, entry, zone),
             ]
         )
 
@@ -128,14 +131,21 @@ class SmartDripZoneStatusSensor(SmartDripBaseEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return descriptive decision attributes."""
         status = self.coordinator.zone_status[self.zone]
+        duration_sec = int(status.get("last_run_duration_seconds", 0))
         return {
             "reason": status.get("reason"),
+            "is_irrigating": status.get("state") == STATUS_RUNNING,
             "last_calculated_et0_mm": self.coordinator.last_et0,
             "last_rain_today_mm": status.get("last_rain_today_mm", 0.0),
             "current_deficit_mm": self.coordinator.zone_deficits[self.zone],
             "target_duration_seconds": status.get("target_duration_seconds", 0),
             "estimated_liters": status.get("estimated_liters", 0.0),
             "last_run_timestamp": status.get("last_run_timestamp"),
+            "last_run_duration_seconds": duration_sec,
+            "last_run_duration_minutes": round(duration_sec / 60.0, 1),
+            "last_run_liters": status.get("last_run_liters", 0.0),
+            "last_run_applied_mm": status.get("last_run_applied_mm", 0.0),
+            "last_run_trigger": status.get("last_run_trigger"),
         }
 
 
@@ -215,3 +225,38 @@ class SmartDripRainTomorrowSensor(SmartDripBaseEntity, SensorEntity):
     def native_value(self) -> float:
         """Return tomorrow's forecasted rainfall in mm."""
         return float(self.coordinator.rain_tomorrow)
+
+
+class SmartDripZoneLastRunSensor(SmartDripBaseEntity, SensorEntity):
+    """Sensor reporting the timestamp and statistics of the last irrigation run."""
+
+    _attr_translation_key = "zone_last_run"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator: SmartDripCoordinator, entry: ConfigEntry, zone: int) -> None:
+        """Initialize last run sensor."""
+        super().__init__(coordinator, entry, zone=zone)
+        self.zone: int = zone
+        self._attr_unique_id = f"{entry.entry_id}_zone_{zone}_last_run"
+        self._attr_name = f"Zone {zone} Last Run"
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return timestamp of the last irrigation run."""
+        ts_str = self.coordinator.zone_status[self.zone].get("last_run_timestamp")
+        if not ts_str:
+            return None
+        return dt_util.parse_datetime(str(ts_str))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return statistics of the last irrigation run."""
+        status = self.coordinator.zone_status[self.zone]
+        duration_sec = int(status.get("last_run_duration_seconds", 0))
+        return {
+            "duration_seconds": duration_sec,
+            "duration_minutes": round(duration_sec / 60.0, 1),
+            "liters": status.get("last_run_liters", 0.0),
+            "applied_mm": status.get("last_run_applied_mm", 0.0),
+            "trigger": status.get("last_run_trigger"),
+        }
