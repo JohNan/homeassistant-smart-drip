@@ -112,6 +112,9 @@
       },
       "zone_status": {
         "name": "Zone Status"
+      },
+      "zone_last_run": {
+        "name": "Zone Last Run"
       }
     }
   },

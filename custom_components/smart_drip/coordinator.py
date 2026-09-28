@@ -121,6 +121,10 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "target_duration_seconds": 0,
             "estimated_liters": 0.0,
             "last_run_timestamp": None,
+            "last_run_duration_seconds": 0,
+            "last_run_liters": 0.0,
+            "last_run_applied_mm": 0.0,
+            "last_run_trigger": None,
         }
 
     def _get_conf(self, key: str, default: Any) -> Any:
@@ -654,8 +658,11 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             flow = zone_flows[zone]
             area = zone_areas[zone]
 
-            async def turn_on(z: int = zone, sw: str = switch_entity) -> None:
+            async def turn_on(z: int = zone, sw: str = switch_entity, d: int = duration) -> None:
                 self.zone_status[z]["state"] = STATUS_RUNNING
+                self.zone_status[z]["reason"] = (
+                    f"Scheduled irrigation active ({round(d / 60)} min)."
+                )
                 self.async_set_updated_data(self._build_coordinator_data())
                 await self.hass.services.async_call(
                     "switch", "turn_on", {"entity_id": sw}, blocking=True
@@ -673,10 +680,18 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 # Compute applied precipitation in mm
                 pr = calculate_precipitation_rate(f, a)
-                applied_mm = (d / 3600.0) * pr
+                applied_mm = round((d / 3600.0) * pr, 2)
+                liters = round((d / 3600.0) * f, 1)
                 self.zone_deficits[z] = max(0.0, round(self.zone_deficits[z] - applied_mm, 2))
                 self.zone_status[z]["state"] = STATUS_IDLE
+                self.zone_status[z]["reason"] = (
+                    f"Completed scheduled irrigation: {liters} L ({applied_mm} mm) in {round(d / 60)} min."
+                )
                 self.zone_status[z]["last_run_timestamp"] = dt_util.now().isoformat()
+                self.zone_status[z]["last_run_duration_seconds"] = d
+                self.zone_status[z]["last_run_liters"] = liters
+                self.zone_status[z]["last_run_applied_mm"] = applied_mm
+                self.zone_status[z]["last_run_trigger"] = "automatic_morning_schedule"
                 self.zone_status[z]["target_duration_seconds"] = 0
                 self.zone_status[z]["estimated_liters"] = 0.0
                 self.async_set_updated_data(self._build_coordinator_data())
@@ -714,6 +729,13 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         async def turn_on() -> None:
             self.zone_status[zone]["state"] = STATUS_RUNNING
+            self.zone_status[zone]["reason"] = (
+                f"Manual irrigation active ({round(duration_seconds / 60)} min)."
+            )
+            self.zone_status[zone]["target_duration_seconds"] = duration_seconds
+            self.zone_status[zone]["estimated_liters"] = round(
+                (duration_seconds / 3600.0) * flow, 1
+            )
             self.async_set_updated_data(self._build_coordinator_data())
             await self.hass.services.async_call(
                 "switch", "turn_on", {"entity_id": switch_entity}, blocking=True
@@ -724,10 +746,20 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "switch", "turn_off", {"entity_id": switch_entity}, blocking=True
             )
             pr = calculate_precipitation_rate(flow, area)
-            applied_mm = (duration_seconds / 3600.0) * pr
+            applied_mm = round((duration_seconds / 3600.0) * pr, 2)
+            liters = round((duration_seconds / 3600.0) * flow, 1)
             self.zone_deficits[zone] = max(0.0, round(self.zone_deficits[zone] - applied_mm, 2))
             self.zone_status[zone]["state"] = STATUS_IDLE
+            self.zone_status[zone]["reason"] = (
+                f"Manual run completed: {liters} L ({applied_mm} mm) in {round(duration_seconds / 60)} min."
+            )
             self.zone_status[zone]["last_run_timestamp"] = dt_util.now().isoformat()
+            self.zone_status[zone]["last_run_duration_seconds"] = duration_seconds
+            self.zone_status[zone]["last_run_liters"] = liters
+            self.zone_status[zone]["last_run_applied_mm"] = applied_mm
+            self.zone_status[zone]["last_run_trigger"] = "manual"
+            self.zone_status[zone]["target_duration_seconds"] = 0
+            self.zone_status[zone]["estimated_liters"] = 0.0
             self.async_set_updated_data(self._build_coordinator_data())
             await self.async_save_state()
 

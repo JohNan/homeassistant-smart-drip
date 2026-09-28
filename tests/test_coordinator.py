@@ -216,6 +216,15 @@ async def test_coordinator_sequential_morning_execution(hass: HomeAssistant) -> 
         assert coordinator.zone_deficits[1] == 0.0
         assert coordinator.zone_deficits[2] == 0.0
 
+        # Last run statistics should be recorded
+        assert coordinator.zone_status[1]["last_run_timestamp"] is not None
+        assert coordinator.zone_status[1]["last_run_duration_seconds"] > 0
+        assert coordinator.zone_status[1]["last_run_liters"] > 0.0
+        assert coordinator.zone_status[1]["last_run_applied_mm"] > 0.0
+        assert coordinator.zone_status[1]["last_run_trigger"] == "automatic_morning_schedule"
+        assert coordinator.zone_status[2]["last_run_timestamp"] is not None
+        assert coordinator.zone_status[2]["last_run_trigger"] == "automatic_morning_schedule"
+
 
 @pytest.mark.asyncio
 async def test_coordinator_reset_bucket(hass: HomeAssistant) -> None:
@@ -260,6 +269,10 @@ async def test_coordinator_manual_run_and_triggers(hass: HomeAssistant) -> None:
         await coordinator.async_run_zone_manual(1, 300)
         assert len(calls_on) == 1
         assert len(calls_off) == 1
+        assert coordinator.zone_status[1]["last_run_timestamp"] is not None
+        assert coordinator.zone_status[1]["last_run_duration_seconds"] == 300
+        assert coordinator.zone_status[1]["last_run_trigger"] == "manual"
+        assert coordinator.zone_status[1]["last_run_liters"] > 0.0
 
     # Test scheduled trigger callbacks
     with (

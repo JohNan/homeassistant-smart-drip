@@ -47,6 +47,19 @@ async def test_entity_platforms_setup(hass: HomeAssistant, mock_entry: MockConfi
     status_sensor = hass.states.get("sensor.smart_drip_zone_1_status")
     assert status_sensor is not None
     assert status_sensor.attributes.get("reason") is not None
+    assert status_sensor.attributes.get("is_irrigating") is False
+    assert "last_run_duration_seconds" in status_sensor.attributes
+    assert "last_run_liters" in status_sensor.attributes
+    assert "last_run_applied_mm" in status_sensor.attributes
+
+    last_run_sensor = hass.states.get("sensor.smart_drip_zone_1_last_run")
+    assert last_run_sensor is not None
+    assert last_run_sensor.attributes.get("device_class") == "timestamp"
+    assert "duration_seconds" in last_run_sensor.attributes
+    assert "duration_minutes" in last_run_sensor.attributes
+    assert "liters" in last_run_sensor.attributes
+    assert "applied_mm" in last_run_sensor.attributes
+    assert "trigger" in last_run_sensor.attributes
 
     et0_sensor = hass.states.get("sensor.smart_drip_daily_et0")
     assert et0_sensor is not None
@@ -204,3 +217,44 @@ async def test_custom_services_and_unload(hass: HomeAssistant, mock_entry: MockC
     assert await hass.config_entries.async_unload(mock_entry.entry_id)
     await hass.async_block_till_done()
     assert DOMAIN not in hass.data or mock_entry.entry_id not in hass.data[DOMAIN]
+
+
+@pytest.mark.asyncio
+async def test_zone_last_run_sensor_with_data(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """Test last run sensor parses timestamp and provides correct run statistics."""
+    mock_entry.add_to_hass(hass)
+
+    with (
+        patch("custom_components.smart_drip.coordinator.async_track_time_change"),
+        patch(
+            "custom_components.smart_drip.coordinator.SmartDripCoordinator.async_evaluate_zones",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await hass.config_entries.async_setup(mock_entry.entry_id)
+        await hass.async_block_till_done()
+
+    coordinator = hass.data[DOMAIN][mock_entry.entry_id]
+    coordinator.zone_status[1]["last_run_timestamp"] = "2026-09-28T06:18:00+00:00"
+    coordinator.zone_status[1]["last_run_duration_seconds"] = 1080
+    coordinator.zone_status[1]["last_run_liters"] = 12.0
+    coordinator.zone_status[1]["last_run_applied_mm"] = 2.5
+    coordinator.zone_status[1]["last_run_trigger"] = "automatic_morning_schedule"
+    coordinator.zone_status[1]["state"] = "Running"
+    coordinator.async_set_updated_data(coordinator._build_coordinator_data())
+    await hass.async_block_till_done()
+
+    last_run_sensor = hass.states.get("sensor.smart_drip_zone_1_last_run")
+    assert last_run_sensor is not None
+    assert "2026-09-28" in last_run_sensor.state
+    assert last_run_sensor.attributes["duration_seconds"] == 1080
+    assert last_run_sensor.attributes["duration_minutes"] == 18.0
+    assert last_run_sensor.attributes["liters"] == 12.0
+    assert last_run_sensor.attributes["applied_mm"] == 2.5
+    assert last_run_sensor.attributes["trigger"] == "automatic_morning_schedule"
+
+    status_sensor = hass.states.get("sensor.smart_drip_zone_1_status")
+    assert status_sensor is not None
+    assert status_sensor.attributes["is_irrigating"] is True
