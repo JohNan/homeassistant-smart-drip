@@ -100,3 +100,44 @@ async def test_exception_safety_guarantees_valve_closed() -> None:
     mock_off.assert_awaited_once()
     assert interlock.is_active is False
     assert interlock.active_channel is None
+
+
+@pytest.mark.asyncio
+async def test_external_channel_tracking_and_interlock_delay() -> None:
+    """Test external channel registration and mutual exclusion."""
+    interlock = SolenoidInterlock(interlock_delay=1)
+
+    assert interlock.is_active is False
+    assert interlock.active_channel is None
+
+    # Register external channel 1
+    interlock.set_external_channel(1)
+    assert interlock.is_active is True
+    assert interlock.active_channel == 1
+
+    # Attempting to actuate Channel 2 while external Channel 1 is active must raise
+    with pytest.raises(ValveActuationError, match="Channel 1 is currently active"):
+        await interlock.execute_irrigation(
+            channel=2,
+            duration_seconds=1,
+            turn_on_fn=AsyncMock(),
+            turn_off_fn=AsyncMock(),
+        )
+
+    # Clear external channel
+    interlock.set_external_channel(None)
+    assert interlock.is_active is False
+    assert interlock.active_channel is None
+
+    # Now execute channel 2 - should succeed and respect remaining interlock delay
+    mock_on = AsyncMock()
+    mock_off = AsyncMock()
+    await interlock.execute_irrigation(
+        channel=2,
+        duration_seconds=1,
+        turn_on_fn=mock_on,
+        turn_off_fn=mock_off,
+    )
+    mock_on.assert_awaited_once()
+    mock_off.assert_awaited_once()
+    assert interlock.is_active is False

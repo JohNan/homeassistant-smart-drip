@@ -111,6 +111,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             1: self._initial_zone_status(1),
             2: self._initial_zone_status(2),
         }
+        self._external_valve_open_time: dict[int, datetime] = {}
         self._unsub_schedules: list[CALLBACK_TYPE] = []
 
     def _initial_zone_status(self, zone: int) -> dict[str, Any]:
@@ -203,6 +204,31 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._unsub_schedules.append(unsub_weather)
 
+        # Track valve/switch state changes for external manual run detection
+        zone_1_switch = self._get_conf(CONF_ZONE_1_SWITCH, DEFAULT_ZONE_1_SWITCH)
+        zone_2_switch = self._get_conf(CONF_ZONE_2_SWITCH, DEFAULT_ZONE_2_SWITCH)
+        valve_entities = [e for e in (zone_1_switch, zone_2_switch) if isinstance(e, str) and e]
+        if valve_entities:
+            unsub_valves = async_track_state_change_event(
+                self.hass,
+                valve_entities,
+                self._handle_valve_state_change,
+            )
+            self._unsub_schedules.append(unsub_valves)
+
+        # Check if any valve is already open at startup
+        for zone, entity_id in ((1, zone_1_switch), (2, zone_2_switch)):
+            if not isinstance(entity_id, str) or not entity_id:
+                continue
+            cur_state = self.hass.states.get(entity_id)
+            if cur_state and cur_state.state.lower() in ("on", "open"):
+                _LOGGER.info("Valve for Zone %s (%s) is already open at startup.", zone, entity_id)
+                self._external_valve_open_time[zone] = dt_util.now()
+                self.interlock.set_external_channel(zone)
+                self.zone_status[zone]["state"] = STATUS_RUNNING
+                self.zone_status[zone]["reason"] = "Manual actuation detected."
+                self.zone_status[zone]["last_run_trigger"] = "manual"
+
         # Update initial forecast and zone status evaluation
         await self.async_update_forecast()
         await self.async_evaluate_zones()
@@ -218,6 +244,102 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_evaluate_zones()
         self.async_set_updated_data(self._build_coordinator_data())
         await self.async_save_state()
+
+    async def _handle_valve_state_change(self, event: Event[EventStateChangedData]) -> None:
+        """Handle state change of valve switch entities to track external actuations."""
+        entity_id = event.data.get("entity_id")
+        new_state_obj = event.data.get("new_state")
+        old_state_obj = event.data.get("old_state")
+        if new_state_obj is None:
+            return
+
+        new_state = new_state_obj.state.lower() if new_state_obj.state else ""
+        old_state = old_state_obj.state.lower() if (old_state_obj and old_state_obj.state) else ""
+
+        if new_state == old_state:
+            return
+
+        zone_switches = {
+            1: self._get_conf(CONF_ZONE_1_SWITCH, DEFAULT_ZONE_1_SWITCH),
+            2: self._get_conf(CONF_ZONE_2_SWITCH, DEFAULT_ZONE_2_SWITCH),
+        }
+        zone = None
+        for z, sw in zone_switches.items():
+            if sw == entity_id:
+                zone = z
+                break
+        if zone is None:
+            return
+
+        is_open = new_state in ("on", "open")
+        was_open = old_state in ("on", "open")
+
+        # Case 1: Valve transitioned to OPEN
+        if is_open and not was_open:
+            # If the interlock is already managing this channel internally, ignore
+            if (
+                self.interlock.is_active
+                and self.interlock.active_channel == zone
+                and zone not in self._external_valve_open_time
+            ):
+                return
+
+            _LOGGER.info("External manual actuation detected on Zone %s (%s).", zone, entity_id)
+            self._external_valve_open_time[zone] = dt_util.now()
+            self.interlock.set_external_channel(zone)
+            self.zone_status[zone]["state"] = STATUS_RUNNING
+            self.zone_status[zone]["reason"] = "Manual actuation detected."
+            self.zone_status[zone]["last_run_trigger"] = "manual"
+            self.async_set_updated_data(self._build_coordinator_data())
+
+        # Case 2: Valve transitioned to CLOSED
+        elif not is_open and was_open:
+            if zone in self._external_valve_open_time:
+                open_time = self._external_valve_open_time.pop(zone)
+                self.interlock.set_external_channel(None)
+                duration = max(0, int((dt_util.now() - open_time).total_seconds()))
+
+                flow = float(
+                    self._get_conf(
+                        CONF_ZONE_1_FLOW_RATE if zone == 1 else CONF_ZONE_2_FLOW_RATE,
+                        DEFAULT_ZONE_1_FLOW_RATE_L_H if zone == 1 else DEFAULT_ZONE_2_FLOW_RATE_L_H,
+                    )
+                )
+                area = float(
+                    self._get_conf(
+                        CONF_ZONE_1_AREA if zone == 1 else CONF_ZONE_2_AREA,
+                        DEFAULT_ZONE_1_AREA_M2 if zone == 1 else DEFAULT_ZONE_2_AREA_M2,
+                    )
+                )
+
+                pr = calculate_precipitation_rate(flow, area)
+                applied_mm = round((duration / 3600.0) * pr, 2)
+                liters = round((duration / 3600.0) * flow, 1)
+
+                self.zone_deficits[zone] = max(0.0, round(self.zone_deficits[zone] - applied_mm, 2))
+                self.zone_status[zone]["state"] = STATUS_IDLE
+                self.zone_status[zone]["reason"] = (
+                    f"Manual run completed: {liters} L ({applied_mm} mm) in {round(duration / 60, 1)} min."
+                )
+                self.zone_status[zone]["last_run_timestamp"] = dt_util.now().isoformat()
+                self.zone_status[zone]["last_run_duration_seconds"] = duration
+                self.zone_status[zone]["last_run_liters"] = liters
+                self.zone_status[zone]["last_run_applied_mm"] = applied_mm
+                self.zone_status[zone]["last_run_trigger"] = "manual"
+                self.zone_status[zone]["target_duration_seconds"] = 0
+                self.zone_status[zone]["estimated_liters"] = 0.0
+
+                _LOGGER.info(
+                    "External manual run completed on Zone %s: %s s (%s L, %s mm). New deficit: %s mm",
+                    zone,
+                    duration,
+                    liters,
+                    applied_mm,
+                    self.zone_deficits[zone],
+                )
+
+                await self.async_save_state()
+                self.async_set_updated_data(self._build_coordinator_data())
 
     async def _handle_weather_state_change(self, event: Event[EventStateChangedData]) -> None:
         """Handle dynamic state change in weather telemetry sensors."""
@@ -432,6 +554,8 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for unsub in self._unsub_schedules:
             unsub()
         self._unsub_schedules.clear()
+        self._external_valve_open_time.clear()
+        self.interlock.set_external_channel(None)
 
     async def _handle_nightly_et0_trigger(self, _now: datetime) -> None:
         """Scheduled callback at 23:00 nightly to calculate ET0."""
@@ -586,6 +710,9 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
         for zone in (1, 2):
+            if self.zone_status[zone]["state"] == STATUS_RUNNING:
+                continue
+
             cfg = zone_configs[zone]
             deficit = self.zone_deficits[zone]
 
