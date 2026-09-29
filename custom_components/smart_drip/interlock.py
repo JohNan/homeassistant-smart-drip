@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Final
 
@@ -35,22 +36,30 @@ class SolenoidInterlock:
         self._hard_limit_seconds = max(self._max_duration_seconds, hard_limit_seconds)
         self._lock = asyncio.Lock()
         self._active_channel: int | None = None
+        self._external_channel: int | None = None
         self._remaining_seconds: int = 0
+        self._last_close_time: float | None = None
 
     @property
     def is_active(self) -> bool:
-        """Return True if a valve is currently open."""
-        return self._active_channel is not None
+        """Return True if a valve is currently open (internal or external)."""
+        return self._active_channel is not None or self._external_channel is not None
 
     @property
     def active_channel(self) -> int | None:
         """Return the channel currently open, or None."""
-        return self._active_channel
+        return self._active_channel if self._active_channel is not None else self._external_channel
 
     @property
     def remaining_seconds(self) -> int:
         """Return remaining seconds in active irrigation run."""
         return self._remaining_seconds
+
+    def set_external_channel(self, channel: int | None) -> None:
+        """Register or clear an external manual channel actuation."""
+        self._external_channel = channel
+        if channel is None:
+            self._last_close_time = time.monotonic()
 
     async def execute_irrigation(
         self,
@@ -69,7 +78,7 @@ class SolenoidInterlock:
         """
         if self._lock.locked() or self.is_active:
             raise ValveActuationError(
-                f"Channel {self._active_channel} is currently active. "
+                f"Channel {self.active_channel} is currently active. "
                 f"Cannot actuate Channel {channel} concurrently."
             )
 
@@ -81,6 +90,14 @@ class SolenoidInterlock:
             return
 
         async with self._lock:
+            # Enforce remaining interlock delay if a valve closed recently
+            if self._last_close_time is not None:
+                elapsed = time.monotonic() - self._last_close_time
+                if elapsed < self._interlock_delay:
+                    remaining_pause = self._interlock_delay - elapsed
+                    _LOGGER.debug("Enforcing %.1fs remaining interlock pause.", remaining_pause)
+                    await asyncio.sleep(remaining_pause)
+
             self._active_channel = channel
             self._remaining_seconds = clamped_duration
             _LOGGER.info(
@@ -113,3 +130,4 @@ class SolenoidInterlock:
                         "Enforcing %s second idle interlock pause.", self._interlock_delay
                     )
                     await asyncio.sleep(self._interlock_delay)
+                    self._last_close_time = time.monotonic()

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -38,7 +39,9 @@ from custom_components.smart_drip.const import (
     DEFAULT_ZONE_1_SWITCH,
     DEFAULT_ZONE_2_SWITCH,
     DOMAIN,
+    STATUS_IDLE,
     STATUS_READY,
+    STATUS_RUNNING,
     STATUS_SKIPPED_ACTIVE_RAIN,
     STATUS_SKIPPED_DAILY_RAIN_EXCEEDED,
     STATUS_SKIPPED_LOW_TEMP,
@@ -71,7 +74,7 @@ def setup_mock_weather_sensors(
     hass.states.async_set(DEFAULT_SENSOR_RAIN_INTENSITY, str(rain_intensity))
 
 
-def get_mock_entry() -> MockConfigEntry:
+def get_mock_entry(options: dict[str, Any] | None = None) -> MockConfigEntry:
     """Create a mock ConfigEntry for smart_drip."""
     return MockConfigEntry(
         domain=DOMAIN,
@@ -95,6 +98,7 @@ def get_mock_entry() -> MockConfigEntry:
             CONF_ZONE_2_ENABLED: False,
             CONF_RAIN_IS_RATE: False,
         },
+        options=options or {},
     )
 
 
@@ -512,3 +516,114 @@ async def test_coordinator_skip_tomorrow_rain(hass: HomeAssistant) -> None:
 
     assert coordinator.zone_status[1]["state"] == STATUS_SKIPPED_RAIN_TOMORROW
     assert "Tomorrow's rain forecast" in coordinator.zone_status[1]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_coordinator_external_manual_run_tracking(hass: HomeAssistant) -> None:
+    """Test tracking external manual actuation on switch and deficit deduction."""
+    setup_mock_weather_sensors(hass)
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    # Initial state is OFF
+    hass.states.async_set(DEFAULT_ZONE_1_SWITCH, "off")
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+    coordinator.zone_deficits[1] = 5.0
+
+    # 1. Turn on switch externally
+    hass.states.async_set(DEFAULT_ZONE_1_SWITCH, "on")
+    await hass.async_block_till_done()
+
+    assert coordinator.zone_status[1]["state"] == STATUS_RUNNING
+    assert "Manual actuation detected" in coordinator.zone_status[1]["reason"]
+    assert coordinator.interlock.is_active is True
+    assert coordinator.interlock.active_channel == 1
+    assert 1 in coordinator._external_valve_open_time
+
+    # 2. Advance time 10 minutes (600s) and turn off switch externally
+    start_time = coordinator._external_valve_open_time[1]
+    with patch("homeassistant.util.dt.now", return_value=start_time + timedelta(seconds=600)):
+        hass.states.async_set(DEFAULT_ZONE_1_SWITCH, "off")
+        await hass.async_block_till_done()
+
+    # Flow = 40 L/h, Area = 4.8 m2 -> Pr = 8.333 mm/h
+    # 600s = 0.1667 h -> applied_mm = round((600/3600) * (40/4.8), 2) = 1.39 mm
+    # liters = round((600/3600) * 40, 1) = 6.7 L
+    assert coordinator.zone_status[1]["state"] == STATUS_IDLE
+    assert coordinator.zone_status[1]["last_run_duration_seconds"] == 600
+    assert coordinator.zone_status[1]["last_run_liters"] == 6.7
+    assert coordinator.zone_status[1]["last_run_applied_mm"] == 1.39
+    assert coordinator.zone_status[1]["last_run_trigger"] == "manual"
+    assert coordinator.zone_deficits[1] == 3.61
+    assert coordinator.interlock.is_active is False
+    assert coordinator.interlock.active_channel is None
+    assert 1 not in coordinator._external_valve_open_time
+
+    await coordinator.async_unload()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_external_manual_run_valve_domain(hass: HomeAssistant) -> None:
+    """Test tracking external manual actuation on a valve domain entity (open/closed)."""
+    setup_mock_weather_sensors(hass)
+    entry = get_mock_entry(
+        {
+            CONF_ZONE_2_ENABLED: True,
+            CONF_ZONE_2_SWITCH: "valve.zone_2_garden",
+            CONF_ZONE_2_FLOW_RATE: 40.0,
+            CONF_ZONE_2_AREA: 5.0,
+        }
+    )
+    entry.add_to_hass(hass)
+
+    hass.states.async_set("valve.zone_2_garden", "closed")
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+    coordinator.zone_deficits[2] = 4.0
+
+    # Open valve externally
+    hass.states.async_set("valve.zone_2_garden", "open")
+    await hass.async_block_till_done()
+
+    assert coordinator.zone_status[2]["state"] == STATUS_RUNNING
+    assert coordinator.interlock.active_channel == 2
+
+    # Close valve after 300s (5 min)
+    start_time = coordinator._external_valve_open_time[2]
+    with patch("homeassistant.util.dt.now", return_value=start_time + timedelta(seconds=300)):
+        hass.states.async_set("valve.zone_2_garden", "closed")
+        await hass.async_block_till_done()
+
+    # Flow = 40 L/h, Area = 5.0 m2 -> Pr = 8.0 mm/h
+    # 300s = 0.0833 h -> applied_mm = round((300/3600) * 8.0, 2) = 0.67 mm
+    # liters = round((300/3600) * 40, 1) = 3.3 L
+    assert coordinator.zone_status[2]["state"] == STATUS_IDLE
+    assert coordinator.zone_status[2]["last_run_duration_seconds"] == 300
+    assert coordinator.zone_status[2]["last_run_liters"] == 3.3
+    assert coordinator.zone_status[2]["last_run_applied_mm"] == 0.67
+    assert coordinator.zone_deficits[2] == 3.33
+
+    await coordinator.async_unload()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_valve_already_open_at_startup(hass: HomeAssistant) -> None:
+    """Test detecting that a valve is already open when the integration starts."""
+    setup_mock_weather_sensors(hass)
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    hass.states.async_set(DEFAULT_ZONE_1_SWITCH, "on")
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    assert coordinator.zone_status[1]["state"] == STATUS_RUNNING
+    assert coordinator.interlock.active_channel == 1
+    assert 1 in coordinator._external_valve_open_time
+
+    await coordinator.async_unload()
+    assert coordinator.interlock.active_channel is None
+    assert len(coordinator._external_valve_open_time) == 0
