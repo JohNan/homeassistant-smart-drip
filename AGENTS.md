@@ -12,6 +12,13 @@ This directory houses the standalone, production-ready Home Assistant custom int
 ```
 integration/
 ├── .git/                         # Standalone Git repository
+├── .github/
+│   ├── release-drafter.yml       # Release Drafter template, category, and version resolver config
+│   └── workflows/
+│       ├── ci.yml                # Lint, format, and pytest suite
+│       ├── validate.yml          # Hassfest and HACS compliance validation
+│       ├── draft-release.yml     # Automated PR labeling & draft release updater
+│       └── release.yml           # Pre-release verification, zip archiving, and release asset upload
 ├── custom_components/
 │   └── smart_drip/
 │       ├── __init__.py           # Component lifecycle, coordinator registration, service registration
@@ -78,3 +85,15 @@ uv run ruff format --check .
 # Static type check
 uv run mypy custom_components/smart_drip
 ```
+
+---
+
+## 4. Release & CI/CD Pipelines
+
+1. **Validation & Hassfest (`validate.yml`)**:
+   Runs on all PRs and pushes to `main`. Validates manifest schema and metadata against Home Assistant standards (`home-assistant/actions/hassfest`) and ensures HACS repository compliance (`hacs/action`).
+2. **Automated Draft Releases (`draft-release.yml` & `release-drafter.yml`)**:
+   Monitors PR lifecycles and pushes to `main`. Automatically categorizes changes into Features, Bug Fixes, Maintenance, and Breaking Changes using Conventional Commit prefixes (`feat:`, `fix:`, `chore:`, `docs:`, etc.) and resolves the next SemVer version tag (`vX.Y.Z`).
+3. **Automated Release Packaging (`release.yml`)**:
+   Triggered on release publication (`release: types: [published]`) or manual dispatch. Executes pre-release verification (lint, pytest suite, manifest version check), packages the integration into `smart_drip.zip`, and uploads the archive asset to the GitHub Release.
+

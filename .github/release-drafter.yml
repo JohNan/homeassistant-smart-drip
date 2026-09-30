@@ -1,0 +1,93 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'enhancement'
+      - 'feature'
+      - 'feat'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'bug'
+      - 'fix'
+      - 'bugfix'
+  - title: '🧰 Maintenance & Refactoring'
+    labels:
+      - 'chore'
+      - 'refactor'
+      - 'ci'
+      - 'docs'
+      - 'documentation'
+      - 'style'
+      - 'maintenance'
+  - title: '⚠️ Breaking Changes'
+    labels:
+      - 'breaking'
+      - 'breaking-change'
+
+change-template: '- $TITLE (@$AUTHOR) in #$NUMBER'
+
+version-resolver:
+  major:
+    labels:
+      - 'breaking'
+      - 'breaking-change'
+  minor:
+    labels:
+      - 'enhancement'
+      - 'feature'
+      - 'feat'
+  patch:
+    labels:
+      - 'fix'
+      - 'bug'
+      - 'bugfix'
+      - 'chore'
+      - 'refactor'
+      - 'docs'
+      - 'ci'
+  default: patch
+
+autolabeler:
+  - label: 'breaking-change'
+    title:
+      - '/BREAKING CHANGE:/i'
+      - '/^.*!:/'
+  - label: 'feat'
+    branch:
+      - '/^feat/i'
+    title:
+      - '/^feat(\(.*\))?:/i'
+  - label: 'fix'
+    branch:
+      - '/^fix/i'
+    title:
+      - '/^fix(\(.*\))?:/i'
+  - label: 'chore'
+    branch:
+      - '/^chore/i'
+    title:
+      - '/^chore(\(.*\))?:/i'
+  - label: 'docs'
+    branch:
+      - '/^docs/i'
+    title:
+      - '/^docs(\(.*\))?:/i'
+  - label: 'refactor'
+    branch:
+      - '/^refactor/i'
+    title:
+      - '/^refactor(\(.*\))?:/i'
+  - label: 'ci'
+    branch:
+      - '/^ci/i'
+    title:
+      - '/^ci(\(.*\))?:/i'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/JohNan/homeassistant-smart-drip/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
