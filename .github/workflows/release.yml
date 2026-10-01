@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Verify & Package Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --extra test
+
+      - name: Run Linter
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Run Test Suite
+        run: uv run pytest --cov=custom_components.smart_drip -v
+
+      - name: Validate Manifest Version
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -n "$TAG" ]; then
+            CLEAN_TAG="${TAG#v}"
+            MANIFEST_VERSION=$(python3 -c "import json; print(json.load(open('custom_components/smart_drip/manifest.json'))['version'])")
+            echo "Release tag: $TAG (clean: $CLEAN_TAG)"
+            echo "Manifest version: $MANIFEST_VERSION"
+            if [ "$CLEAN_TAG" != "$MANIFEST_VERSION" ]; then
+              echo "::warning::Manifest version ($MANIFEST_VERSION) does not match release tag ($TAG)"
+            fi
+          fi
+
+      - name: Package Integration Archive
+        run: |
+          python3 -c "
+          import os, zipfile
+          with zipfile.ZipFile('smart_drip.zip', 'w', zipfile.ZIP_DEFLATED) as zipf:
+              for root, dirs, files in os.walk('custom_components/smart_drip'):
+                  dirs[:] = [d for d in dirs if d != '__pycache__']
+                  for file in files:
+                      if not file.endswith('.pyc'):
+                          full_path = os.path.join(root, file)
+                          arcname = os.path.relpath(full_path, 'custom_components')
+                          zipf.write(full_path, arcname)
+          "
+          python3 -m zipfile -l smart_drip.zip
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || (inputs.tag != '' && inputs.tag != null)
+        with:
+          files: smart_drip.zip
+          tag_name: ${{ github.event.release.tag_name || inputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
