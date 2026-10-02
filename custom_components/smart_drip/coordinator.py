@@ -484,6 +484,9 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         zk = int(k)
                         if isinstance(v, dict):
                             self.zone_status[zk] = {**self._initial_zone_status(zk), **v}
+
+            if self.solar_radiation_today == 0.0:
+                await self._async_backfill_historical_rain()
             return
 
         _LOGGER.info("No persisted state found in storage. Attempting first-run recorder backfill.")
@@ -730,14 +733,17 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             radiation = round(live_rad * 0.0036, 3)
         elif self.solar_radiation_today > 0.0:
             radiation = self.solar_radiation_today
-        elif live_rad > 50.0 or "w" in rad_unit:
+        elif live_rad > 50.0 or ("w" in rad_unit and live_rad > 0.0):
             # Approximate daily irradiation from daytime instantaneous reading (8h equivalent)
             curr_w_m2 = live_rad * 1000.0 if "kw" in rad_unit else live_rad
             radiation = round(curr_w_m2 * 28800.0 / 1_000_000.0, 2)
         elif live_rad > 0.0:
             radiation = live_rad
         else:
-            radiation = 0.0 if st_rad is not None else 15.0
+            # At night or missing live data: attempt recorder backfill if empty
+            if self.solar_radiation_today == 0.0:
+                await self._async_backfill_historical_rain()
+            radiation = self.solar_radiation_today if self.solar_radiation_today > 0.0 else 15.0
         wind = self._get_float_state(self._get_conf(CONF_SENSOR_WIND, DEFAULT_SENSOR_WIND), 1.5)
         pressure = self._get_float_state(
             self._get_conf(CONF_SENSOR_PRESSURE, DEFAULT_SENSOR_PRESSURE), 1013.25
