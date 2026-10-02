@@ -47,6 +47,8 @@ async def test_storage_restores_persisted_state(
         "rain_today_date": today_str,
         "rain_tomorrow": 2.5,
         "zone_deficits": {"1": 6.8, "2": 0.0},
+        "solar_radiation_today": 12.4,
+        "solar_radiation_today_date": today_str,
         "zone_status": {
             "1": {"state": "Ready", "reason": "Deficit accumulated"},
             "2": {"state": "Skipped: Zone Disabled", "reason": "Disabled"},
@@ -63,6 +65,7 @@ async def test_storage_restores_persisted_state(
     assert coordinator.yesterday_rain == 4.5
     assert coordinator.rain_today == 1.2
     assert coordinator.rain_tomorrow == 2.5
+    assert coordinator.solar_radiation_today == 12.4
     assert coordinator.zone_deficits[1] == 6.8
     assert coordinator.zone_deficits[2] == 0.0
     assert coordinator.zone_status[1]["state"] == "Ready"

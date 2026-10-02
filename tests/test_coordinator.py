@@ -627,3 +627,64 @@ async def test_coordinator_valve_already_open_at_startup(hass: HomeAssistant) ->
     await coordinator.async_unload()
     assert coordinator.interlock.active_channel is None
     assert len(coordinator._external_valve_open_time) == 0
+
+
+@pytest.mark.asyncio
+async def test_coordinator_solar_radiation_live_integration(hass: HomeAssistant) -> None:
+    """Test dynamic live solar radiation integration over time."""
+    setup_mock_weather_sensors(hass)
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    # Base irradiance: 200 W/m2 at t0
+    t0 = dt_util.now()
+    coordinator._last_solar_radiation = 200.0
+    coordinator._last_solar_radiation_timestamp = t0
+
+    # Advance 1800 seconds and increase irradiance to 600 W/m2
+    t1 = t0 + timedelta(seconds=1800)
+    with patch("homeassistant.util.dt.now", return_value=t1):
+        hass.states.async_set(
+            DEFAULT_SENSOR_RADIATION,
+            "600.0",
+            {"unit_of_measurement": "W/m²"},
+        )
+        await hass.async_block_till_done()
+
+    # ((200 + 600) / 2) * 1800 / 1e6 = 0.72 MJ/m2
+    assert coordinator.solar_radiation_today == 0.72
+    await coordinator.async_unload()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_et0_with_integrated_solar_radiation(hass: HomeAssistant) -> None:
+    """Test nightly ET0 calculation uses integrated daytime solar radiation even when live sensor is 0 W/m2 at night."""
+    setup_mock_weather_sensors(hass, temp=18.0, radiation=0.0, wind=1.5, humidity=60.0)
+    # Explicitly set live sensor to 0 W/m2 with W/m2 unit (night time conditions)
+    hass.states.async_set(
+        DEFAULT_SENSOR_RADIATION,
+        "0.0",
+        {"unit_of_measurement": "W/m²"},
+    )
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    # Simulate accumulated solar radiation from daytime (e.g. 15.0 MJ/m2)
+    coordinator.solar_radiation_today = 15.0
+    coordinator.zone_deficits[1] = 0.87
+
+    # Execute nightly calculation
+    et0 = await coordinator.async_calculate_daily_et0()
+
+    # ET0 should calculate using 15.0 MJ/m2, not 0.0 W/m2!
+    assert et0 > 0.0
+    assert coordinator.last_et0 == et0
+    # Deficit should increase from 0.87 mm by et0
+    assert coordinator.zone_deficits[1] == round(0.87 + et0, 2)
+    await coordinator.async_unload()

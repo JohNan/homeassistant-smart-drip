@@ -241,3 +241,41 @@ def integrate_state_history(
 def integrate_delta_history(states: list[tuple[float, datetime]]) -> float:
     """Sum interval delta precipitation amounts (mm) from sensors reporting per-period totals."""
     return round(sum(val for val, _ in states if val > 0.0), 2)
+
+
+def integrate_trapezoidal_solar(
+    rate1_w_m2: float,
+    rate2_w_m2: float,
+    duration_seconds: float,
+) -> float:
+    """Calculate accumulated solar irradiation (MJ/m2) from irradiance (W/m2) over duration.
+
+    Energy (MJ/m2) = (((rate1 + rate2) / 2) * duration_seconds) / 1,000,000
+    """
+    if duration_seconds <= 0.0:
+        return 0.0
+    r1 = max(0.0, rate1_w_m2)
+    r2 = max(0.0, rate2_w_m2)
+    return ((r1 + r2) / 2.0) * (duration_seconds / 1_000_000.0)
+
+
+def integrate_solar_history(
+    states: list[tuple[float, datetime]],
+    max_gap_seconds: float = 3600.0,
+) -> float:
+    """Integrate a series of timestamped irradiance (W/m2) values into total daily MJ/m2.
+
+    states: list of (irradiance_w_m2, timestamp) sorted by timestamp ascending.
+    """
+    if len(states) < 2:
+        return 0.0
+
+    total_mj = 0.0
+    for i in range(1, len(states)):
+        r1, t1 = states[i - 1]
+        r2, t2 = states[i]
+        dt = (t2 - t1).total_seconds()
+        if 0 < dt <= max_gap_seconds:
+            total_mj += integrate_trapezoidal_solar(r1, r2, dt)
+
+    return round(total_mj, 3)

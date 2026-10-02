@@ -326,3 +326,38 @@ def test_evaluate_irrigation_decision_rain_tomorrow_skip() -> None:
         rain_tomorrow_cutoff_mm=DEFAULT_RAIN_TOMORROW_CUTOFF_MM,
     )
     assert status_ok == STATUS_READY
+
+
+def test_integrate_trapezoidal_solar() -> None:
+    """Test trapezoidal solar irradiation accumulation from irradiance pairs."""
+    from custom_components.smart_drip.calc import integrate_trapezoidal_solar
+
+    # 0 duration or negative
+    assert integrate_trapezoidal_solar(500.0, 500.0, 0.0) == 0.0
+    assert integrate_trapezoidal_solar(500.0, 500.0, -10.0) == 0.0
+    # Steady 500 W/m2 for 1 hour (3600s) = 500 * 3600 / 1e6 = 1.8 MJ/m2
+    assert round(integrate_trapezoidal_solar(500.0, 500.0, 3600.0), 3) == 1.8
+    # Ramp from 200 W/m2 to 600 W/m2 over 1800s: ((200+600)/2) * 1800 / 1e6 = 0.72 MJ/m2
+    assert round(integrate_trapezoidal_solar(200.0, 600.0, 1800.0), 3) == 0.72
+
+
+def test_integrate_solar_history() -> None:
+    """Test integrating historical series of timestamped solar irradiance values."""
+    from custom_components.smart_drip.calc import integrate_solar_history
+
+    assert integrate_solar_history([]) == 0.0
+    t0 = datetime(2026, 9, 26, 8, 0, 0, tzinfo=UTC)
+    assert integrate_solar_history([(200.0, t0)]) == 0.0
+
+    # 08:00 (200 W/m2) -> 09:00 (600 W/m2) -> 10:00 (400 W/m2)
+    t1 = datetime(2026, 9, 26, 9, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 9, 26, 10, 0, 0, tzinfo=UTC)
+    history = [(200.0, t0), (600.0, t1), (400.0, t2)]
+    # Int 1: ((200+600)/2) * 3600 / 1e6 = 1.44 MJ/m2
+    # Int 2: ((600+400)/2) * 3600 / 1e6 = 1.80 MJ/m2
+    # Total = 3.24 MJ/m2
+    assert integrate_solar_history(history) == 3.24
+
+    # Large gap ignored
+    t3 = datetime(2026, 9, 26, 15, 0, 0, tzinfo=UTC)
+    assert integrate_solar_history([(200.0, t0), (400.0, t3)], max_gap_seconds=3600.0) == 0.0

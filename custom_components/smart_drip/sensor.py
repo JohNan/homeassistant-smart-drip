@@ -35,6 +35,7 @@ async def async_setup_entry(
         SmartDripRainTodaySensor(coordinator, entry),
         SmartDripYesterdayRainSensor(coordinator, entry),
         SmartDripRainTomorrowSensor(coordinator, entry),
+        SmartDripSolarRadiationTodaySensor(coordinator, entry),
     ]
 
     for zone in (1, 2):
@@ -89,6 +90,15 @@ class SmartDripDailyET0Sensor(SmartDripBaseEntity, SensorEntity):
         """Return the last calculated ET0 in mm."""
         return self.coordinator.last_et0
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return diagnostic attributes for ET0."""
+        return {
+            "solar_radiation_today_mj": self.coordinator.solar_radiation_today,
+            "rain_today_mm": self.coordinator.rain_today,
+            "yesterday_rain_mm": self.coordinator.yesterday_rain,
+        }
+
 
 class SmartDripRainTodaySensor(SmartDripBaseEntity, SensorEntity):
     """Sensor reporting today's rainfall accumulation."""
@@ -136,6 +146,7 @@ class SmartDripZoneStatusSensor(SmartDripBaseEntity, SensorEntity):
             "reason": status.get("reason"),
             "is_irrigating": status.get("state") == STATUS_RUNNING,
             "last_calculated_et0_mm": self.coordinator.last_et0,
+            "solar_radiation_today_mj": self.coordinator.solar_radiation_today,
             "last_rain_today_mm": status.get("last_rain_today_mm", 0.0),
             "current_deficit_mm": self.coordinator.zone_deficits[self.zone],
             "target_duration_seconds": status.get("target_duration_seconds", 0),
@@ -166,6 +177,30 @@ class SmartDripZoneDeficitSensor(SmartDripBaseEntity, SensorEntity):
     def native_value(self) -> float:
         """Return cumulative water deficit in mm."""
         return self.coordinator.zone_deficits[self.zone]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return decision and calculation attributes for the zone deficit."""
+        status = self.coordinator.zone_status[self.zone]
+        duration_sec = int(status.get("last_run_duration_seconds", 0))
+        return {
+            "reason": status.get("reason"),
+            "status": status.get("state"),
+            "last_calculated_et0_mm": self.coordinator.last_et0,
+            "solar_radiation_today_mj": self.coordinator.solar_radiation_today,
+            "last_rain_today_mm": status.get("last_rain_today_mm", 0.0),
+            "rain_today_mm": self.coordinator.rain_today,
+            "yesterday_rain_mm": self.coordinator.yesterday_rain,
+            "rain_tomorrow_mm": self.coordinator.rain_tomorrow,
+            "target_duration_seconds": status.get("target_duration_seconds", 0),
+            "estimated_liters": status.get("estimated_liters", 0.0),
+            "last_run_timestamp": status.get("last_run_timestamp"),
+            "last_run_duration_seconds": duration_sec,
+            "last_run_duration_minutes": round(duration_sec / 60.0, 1),
+            "last_run_liters": status.get("last_run_liters", 0.0),
+            "last_run_applied_mm": status.get("last_run_applied_mm", 0.0),
+            "last_run_trigger": status.get("last_run_trigger"),
+        }
 
 
 class SmartDripZoneDurationSensor(SmartDripBaseEntity, SensorEntity):
@@ -260,3 +295,22 @@ class SmartDripZoneLastRunSensor(SmartDripBaseEntity, SensorEntity):
             "applied_mm": status.get("last_run_applied_mm", 0.0),
             "trigger": status.get("last_run_trigger"),
         }
+
+
+class SmartDripSolarRadiationTodaySensor(SmartDripBaseEntity, SensorEntity):
+    """Sensor reporting today's solar radiation accumulation in MJ/m2."""
+
+    _attr_translation_key = "solar_radiation_today"
+    _attr_native_unit_of_measurement = "MJ/m²"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: SmartDripCoordinator, entry: ConfigEntry) -> None:
+        """Initialize solar radiation today sensor."""
+        super().__init__(coordinator, entry, zone=None)
+        self._attr_unique_id = f"{entry.entry_id}_solar_radiation_today"
+        self._attr_name = "Solar Radiation Today"
+
+    @property
+    def native_value(self) -> float:
+        """Return today's accumulated solar radiation in MJ/m2."""
+        return float(self.coordinator.solar_radiation_today)

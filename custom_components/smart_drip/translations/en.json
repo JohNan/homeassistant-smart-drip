@@ -131,6 +131,9 @@
       },
       "zone_last_run": {
         "name": "Zone Last Run"
+      },
+      "solar_radiation_today": {
+        "name": "Solar Radiation Today"
       }
     }
   },
