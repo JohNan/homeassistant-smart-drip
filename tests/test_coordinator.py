@@ -688,3 +688,31 @@ async def test_coordinator_et0_with_integrated_solar_radiation(hass: HomeAssista
     # Deficit should increase from 0.87 mm by et0
     assert coordinator.zone_deficits[1] == round(0.87 + et0, 2)
     await coordinator.async_unload()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_et0_zero_solar_night_fallback(hass: HomeAssistant) -> None:
+    """Test nightly ET0 calculation uses baseline 15.0 MJ/m2 when solar_radiation_today is 0 at night."""
+    setup_mock_weather_sensors(hass, temp=18.0, radiation=0.0, wind=1.5, humidity=60.0)
+    hass.states.async_set(
+        DEFAULT_SENSOR_RADIATION,
+        "0.0",
+        {"unit_of_measurement": "W/m²"},
+    )
+    entry = get_mock_entry()
+    entry.add_to_hass(hass)
+
+    coordinator = SmartDripCoordinator(hass, entry)
+    await coordinator.async_setup()
+
+    coordinator.solar_radiation_today = 0.0
+    coordinator.zone_deficits[1] = 0.87
+
+    # Calculate ET0 at night with 0 live irradiance and 0 stored solar
+    et0 = await coordinator.async_calculate_daily_et0()
+
+    # Should fall back to 15.0 MJ/m² baseline, producing positive ET0
+    assert et0 > 0.0
+    assert coordinator.last_et0 == et0
+    assert coordinator.zone_deficits[1] == round(0.87 + et0, 2)
+    await coordinator.async_unload()

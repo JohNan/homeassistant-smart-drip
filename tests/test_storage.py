@@ -271,3 +271,50 @@ async def test_storage_migrates_legacy_per_entry_file(
     assert coordinator.rain_today == 0.5
     mock_save.assert_awaited()
     mock_remove.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_storage_backfills_solar_when_missing_or_zero(
+    hass: HomeAssistant, mock_entry: MockConfigEntry
+) -> None:
+    """Test coordinator backfills solar radiation from recorder if storage has 0.0 or missing solar."""
+    mock_entry.add_to_hass(hass)
+    coordinator = SmartDripCoordinator(hass, mock_entry)
+
+    hass.config.components.add("recorder")
+
+    now = dt_util.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Solar sensor states today: 1h at 400 W/m² = 1.44 MJ/m²
+    s1 = MagicMock(state="400.0", last_updated=today_start + timedelta(hours=10))
+    s2 = MagicMock(state="400.0", last_updated=today_start + timedelta(hours=11))
+
+    mock_recorder = MagicMock()
+    states_dict = {
+        "sensor.vaderstation_stralning": [s1, s2],
+    }
+    mock_recorder.async_add_executor_job = AsyncMock(return_value=states_dict)
+
+    today_str = now.date().isoformat()
+    saved_data = {
+        "last_et0": 2.5,
+        "yesterday_rain": 0.0,
+        "rain_today": 0.0,
+        "rain_today_date": today_str,
+        "solar_radiation_today": 0.0,
+        "solar_radiation_today_date": today_str,
+        "zone_deficits": {"1": 0.87, "2": 0.0},
+        "zone_status": {},
+    }
+
+    with (
+        patch.object(Store, "async_load", new_callable=AsyncMock, return_value=saved_data),
+        patch.object(Store, "async_save", new_callable=AsyncMock),
+        patch("homeassistant.components.recorder.get_instance", return_value=mock_recorder),
+        patch("custom_components.smart_drip.coordinator.async_track_time_change"),
+    ):
+        await coordinator.async_setup()
+
+    assert coordinator.solar_radiation_today == 1.44
+    assert coordinator.zone_deficits[1] == 0.87
