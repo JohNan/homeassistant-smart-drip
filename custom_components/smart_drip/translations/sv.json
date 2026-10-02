@@ -131,6 +131,9 @@
       },
       "zone_last_run": {
         "name": "Senaste bevattning"
+      },
+      "solar_radiation_today": {
+        "name": "Solstrålning idag"
       }
     }
   },

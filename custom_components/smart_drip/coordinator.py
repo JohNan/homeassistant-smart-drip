@@ -21,8 +21,10 @@ from .calc import (
     calculate_runtime_seconds,
     evaluate_irrigation_decision,
     integrate_delta_history,
+    integrate_solar_history,
     integrate_state_history,
     integrate_trapezoidal_rain,
+    integrate_trapezoidal_solar,
 )
 from .const import (
     CONF_MAX_BUCKET,
@@ -106,6 +108,10 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.rain_tomorrow: float = 0.0
         self._last_rain_rate: float | None = None
         self._last_rain_rate_timestamp: datetime | None = None
+        self.solar_radiation_today: float = 0.0
+        self.solar_radiation_today_date: str = dt_util.now().date().isoformat()
+        self._last_solar_radiation: float | None = None
+        self._last_solar_radiation_timestamp: datetime | None = None
         self.zone_deficits: dict[int, float] = {1: 0.0, 2: 0.0}
         self.zone_status: dict[int, dict[str, Any]] = {
             1: self._initial_zone_status(1),
@@ -180,7 +186,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._unsub_schedules.append(unsub_morning)
 
-        # Initialize live rain rate tracker
+        # Initialize live rain and solar radiation trackers
         rain_is_rate = bool(self._get_conf(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE))
         rain_today_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
         rain_rate_entity = self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
@@ -188,11 +194,16 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_rain_rate = self._get_float_state(initial_rate_entity, 0.0)
         self._last_rain_rate_timestamp = dt_util.now()
 
+        radiation_entity = self._get_conf(CONF_SENSOR_RADIATION, DEFAULT_SENSOR_RADIATION)
+        self._last_solar_radiation = self._get_float_state(radiation_entity, 0.0)
+        self._last_solar_radiation_timestamp = dt_util.now()
+
         weather_entity = self._get_conf(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
         weather_entities = [
             rain_today_entity,
             rain_rate_entity,
             self._get_conf(CONF_SENSOR_TEMP, DEFAULT_SENSOR_TEMP),
+            radiation_entity,
             weather_entity,
         ]
         valid_weather_entities = [e for e in weather_entities if isinstance(e, str) and e]
@@ -240,6 +251,9 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.rain_today = 0.0
         self.rain_today_date = dt_util.now().date().isoformat()
         self._last_rain_rate_timestamp = dt_util.now()
+        self.solar_radiation_today = 0.0
+        self.solar_radiation_today_date = dt_util.now().date().isoformat()
+        self._last_solar_radiation_timestamp = dt_util.now()
         await self.async_update_forecast()
         await self.async_evaluate_zones()
         self.async_set_updated_data(self._build_coordinator_data())
@@ -346,6 +360,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entity_id = event.data.get("entity_id")
         rain_today_entity = self._get_conf(CONF_SENSOR_RAIN_TODAY, DEFAULT_SENSOR_RAIN_TODAY)
         rain_rate_entity = self._get_conf(CONF_SENSOR_RAIN_INTENSITY, DEFAULT_SENSOR_RAIN_INTENSITY)
+        radiation_entity = self._get_conf(CONF_SENSOR_RADIATION, DEFAULT_SENSOR_RADIATION)
         weather_entity = self._get_conf(CONF_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
         rain_is_rate = bool(self._get_conf(CONF_RAIN_IS_RATE, DEFAULT_RAIN_IS_RATE))
 
@@ -380,6 +395,38 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 if curr_val >= self.rain_today:
                     self.rain_today = curr_val
+        elif entity_id == radiation_entity:
+            st_rad = self.hass.states.get(radiation_entity)
+            rad_unit = (
+                (st_rad.attributes.get("unit_of_measurement") or "").strip().lower()
+                if st_rad
+                else ""
+            )
+            curr_val = self._get_float_state(radiation_entity, 0.0)
+            if rad_unit in ("mj/m²", "mj/m2"):
+                self.solar_radiation_today = round(curr_val, 3)
+            elif rad_unit in ("kwh/m²", "kwh/m2"):
+                self.solar_radiation_today = round(curr_val * 3.6, 3)
+            elif rad_unit in ("wh/m²", "wh/m2"):
+                self.solar_radiation_today = round(curr_val * 0.0036, 3)
+            else:
+                curr_w_m2 = curr_val * 1000.0 if "kw" in rad_unit else curr_val
+                now = dt_util.now()
+                if (
+                    self._last_solar_radiation is not None
+                    and self._last_solar_radiation_timestamp is not None
+                ):
+                    dt_sec = (now - self._last_solar_radiation_timestamp).total_seconds()
+                    if 0 < dt_sec <= 3600:
+                        d_solar = integrate_trapezoidal_solar(
+                            self._last_solar_radiation, curr_w_m2, dt_sec
+                        )
+                        if d_solar > 0.0:
+                            self.solar_radiation_today = round(
+                                self.solar_radiation_today + d_solar, 3
+                            )
+                self._last_solar_radiation = curr_w_m2
+                self._last_solar_radiation_timestamp = now
 
         _LOGGER.debug("Weather telemetry changed for %s; re-evaluating zones.", entity_id)
         await self.async_evaluate_zones()
@@ -419,6 +466,14 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.rain_today = 0.0
                 self.rain_today_date = today_str
 
+            stored_rad_date = stored.get("solar_radiation_today_date")
+            if stored_rad_date == today_str:
+                self.solar_radiation_today = float(stored.get("solar_radiation_today", 0.0))
+                self.solar_radiation_today_date = today_str
+            else:
+                self.solar_radiation_today = 0.0
+                self.solar_radiation_today_date = today_str
+
             if "zone_deficits" in stored and isinstance(stored["zone_deficits"], dict):
                 for k, v in stored["zone_deficits"].items():
                     with suppress(ValueError, TypeError):
@@ -447,6 +502,11 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rain_entities = (
             [intensity_entity, today_entity] if rain_is_rate else [today_entity, intensity_entity]
         )
+        radiation_entity = self._get_conf(CONF_SENSOR_RADIATION, DEFAULT_SENSOR_RADIATION)
+        query_entities = list(rain_entities)
+        if isinstance(radiation_entity, str) and radiation_entity:
+            query_entities.append(radiation_entity)
+
         now = dt_util.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         yesterday_start = today_start - timedelta(days=1)
@@ -458,7 +518,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass,
                 start_time=yesterday_start,
                 end_time=now,
-                entity_ids=rain_entities,
+                entity_ids=query_entities,
                 significant_changes_only=False,
             )
 
@@ -530,6 +590,25 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             self.yesterday_rain = round(yesterday_vals[-1], 2)
                         if today_vals:
                             self.rain_today = round(today_vals[-1], 2)
+
+            if radiation_entity in states_dict and states_dict[radiation_entity]:
+                rad_states = states_dict[radiation_entity]
+                today_rad_pairs: list[tuple[float, datetime]] = []
+                for st in rad_states:
+                    val_str = getattr(st, "state", None)
+                    ts = getattr(st, "last_updated", None)
+                    if val_str not in (None, "unknown", "unavailable") and ts is not None:
+                        with suppress(ValueError, TypeError):
+                            w_m2 = float(str(val_str).replace(",", ".").strip())
+                            if ts >= today_start:
+                                today_rad_pairs.append((w_m2, ts))
+                if today_rad_pairs:
+                    self.solar_radiation_today = integrate_solar_history(today_rad_pairs)
+                    _LOGGER.info(
+                        "Seeded today's solar radiation via recorder integration (%s): %.3f MJ/m2",
+                        radiation_entity,
+                        self.solar_radiation_today,
+                    )
         except Exception as err:
             _LOGGER.warning("Could not backfill historical rain from recorder: %s", err)
 
@@ -541,6 +620,8 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "rain_today": self.rain_today,
             "rain_today_date": self.rain_today_date,
             "rain_tomorrow": self.rain_tomorrow,
+            "solar_radiation_today": self.solar_radiation_today,
+            "solar_radiation_today_date": self.solar_radiation_today_date,
             "zone_deficits": {str(k): v for k, v in self.zone_deficits.items()},
             "zone_status": {str(k): v for k, v in self.zone_status.items()},
         }
@@ -632,9 +713,31 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         dewpoint = self._get_float_state(
             self._get_conf(CONF_SENSOR_DEWPOINT, DEFAULT_SENSOR_DEWPOINT), 10.0
         )
-        radiation = self._get_float_state(
-            self._get_conf(CONF_SENSOR_RADIATION, DEFAULT_SENSOR_RADIATION), 15.0
+        radiation_entity = self._get_conf(CONF_SENSOR_RADIATION, DEFAULT_SENSOR_RADIATION)
+        st_rad = (
+            self.hass.states.get(radiation_entity) if isinstance(radiation_entity, str) else None
         )
+        rad_unit = (
+            (st_rad.attributes.get("unit_of_measurement") or "").strip().lower() if st_rad else ""
+        )
+        live_rad = self._get_float_state(radiation_entity, 0.0)
+
+        if rad_unit in ("mj/m²", "mj/m2"):
+            radiation = live_rad
+        elif rad_unit in ("kwh/m²", "kwh/m2"):
+            radiation = round(live_rad * 3.6, 3)
+        elif rad_unit in ("wh/m²", "wh/m2"):
+            radiation = round(live_rad * 0.0036, 3)
+        elif self.solar_radiation_today > 0.0:
+            radiation = self.solar_radiation_today
+        elif live_rad > 50.0 or "w" in rad_unit:
+            # Approximate daily irradiation from daytime instantaneous reading (8h equivalent)
+            curr_w_m2 = live_rad * 1000.0 if "kw" in rad_unit else live_rad
+            radiation = round(curr_w_m2 * 28800.0 / 1_000_000.0, 2)
+        elif live_rad > 0.0:
+            radiation = live_rad
+        else:
+            radiation = 0.0 if st_rad is not None else 15.0
         wind = self._get_float_state(self._get_conf(CONF_SENSOR_WIND, DEFAULT_SENSOR_WIND), 1.5)
         pressure = self._get_float_state(
             self._get_conf(CONF_SENSOR_PRESSURE, DEFAULT_SENSOR_PRESSURE), 1013.25
@@ -961,6 +1064,7 @@ class SmartDripCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "yesterday_rain": self.yesterday_rain,
             "rain_today": self.rain_today,
             "rain_tomorrow": self.rain_tomorrow,
+            "solar_radiation_today": self.solar_radiation_today,
             "zone_deficits": dict(self.zone_deficits),
             "zone_status": {z: dict(self.zone_status[z]) for z in (1, 2)},
             "interlock_active": self.interlock.is_active,
