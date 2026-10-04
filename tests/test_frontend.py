@@ -150,3 +150,29 @@ async def test_async_register_frontend_http_error(hass: HomeAssistant) -> None:
     # Should not raise exception
     await async_register_frontend(hass)
     assert hass.data.get(DATA_FRONTEND_REGISTERED) is True
+
+
+def test_card_bundle_elements_and_version_parity() -> None:
+    """Test that smart-drip-card.js defines both cards and matches GIT_HASH."""
+    from pathlib import Path
+
+    card_file = (
+        Path(__file__).parent.parent
+        / "custom_components"
+        / "smart_drip"
+        / "frontend"
+        / "smart-drip-card.js"
+    )
+    assert card_file.exists()
+    content = card_file.read_text(encoding="utf-8")
+
+    # Assert version parity
+    assert f'const CARD_VERSION = "{GIT_HASH}";' in content
+
+    # Assert both custom elements defined
+    assert 'customElements.define("smart-drip-card", SmartDripCard);' in content
+    assert 'customElements.define("smart-drip-schedule-card", SmartDripScheduleCard);' in content
+
+    # Assert both card picker registrations
+    assert 'type: "smart-drip-card"' in content
+    assert 'type: "smart-drip-schedule-card"' in content
