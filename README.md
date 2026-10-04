@@ -77,21 +77,44 @@ Production-grade Home Assistant custom integration for smart micro-drip irrigati
 
 ---
 
-## Dashboard Lovelace Card
+## Dashboard Lovelace Cards
 
-The integration automatically registers and serves its custom dashboard card:
-* **Card Type**: `custom:smart-drip-card`
-* **Auto-Loading**: Automatically injected into the Home Assistant frontend and registered as a Lovelace resource. No manual resource configuration or JavaScript downloading required.
-* **UI Card Picker**: Available directly in the "Add Card" dashboard menu as **Smart Drip Irrigation Card** with visual live preview and visual configuration editor.
+The integration automatically registers and serves two modular dashboard cards bundled in a single asset:
 
-### Example Dashboard YAML
+### 1. Smart Drip Zone Card (`custom:smart-drip-card`)
+Monitors ET₀, soil moisture deficit, live decision reasoning, and allows manual/auto zone control. It can be dedicated to a single zone (zero clutter) or used in combined tabbed mode:
+* **Single Zone Mode (`zone: 1` or `zone: 2`)**: Focused view displaying that specific zone's status badge, decision telemetry reason, deficit, target runtime, and controls.
+* **All Zones Tabbed Mode (`zone: all`)**: Segmented pill tabs (`[🌱 Zone 1] [🌿 Zone 2] [📊 Overview]`) allowing instant switching without dashboard clutter.
+* **Custom Entity Overrides**: Configurable in YAML or via the visual editor (`status_entity`, `deficit_entity`, `duration_entity`, `auto_entity`, `valve_entity`).
 
+### 2. Smart Drip Schedule Card (`custom:smart-drip-schedule-card`)
+A dedicated planning card displaying tomorrow's 06:00 dispatch predictions, skip reasoning, and rainfall forecast chips (rain tomorrow, yesterday's rain, today's rain), keeping primary monitoring cards clean and uncluttered.
+
+### Example Dashboard Configurations
+
+#### Option A: Modular Per-Zone Layout (Cleanest UX)
 ```yaml
-type: custom:smart-drip-card
-title: Smart Drip Irrigation
-show_gauges: true
-show_zones: true
-show_actions: true
+type: grid
+columns: 2
+square: false
+cards:
+  - type: custom:smart-drip-card
+    zone: 1
+    title: "Stora rabatten"
+  - type: custom:smart-drip-card
+    zone: 2
+    title: "Lilla rabatten"
+  - type: custom:smart-drip-schedule-card
+    title: "Irrigation Schedule & Forecast"
+```
+
+#### Option B: Combined Tabbed Card
+```yaml
+type: vertical-stack
+cards:
+  - type: custom:smart-drip-card
+    zone: all
+  - type: custom:smart-drip-schedule-card
 ```
 
 ---
